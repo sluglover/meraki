@@ -1,0 +1,77 @@
+#!/usr/bin/env python3
+
+"""
+Written by Christopher Corby, 5/27/22
+
+This script tracks the uplink statistics of an organization. Essentially where uplinks are testing their connectivity to per network.
+
+History:
+5/27/22 cmc Created
+
+Requirements:
+python 3, csv, meraki_functions, sys, getopt
+
+"""
+
+import csv, meraki_functions, sys, getopt
+
+def report(ORG_NAME):
+    """
+    Creates a report of the uplink test connections for each network on the organizations.
+
+    :usage: report(ORG_NAME) -> uplink_connections.csv
+    :param ORG_NAME: Name of the organization to use
+    :returns: uplink_connections.csv in reports directory
+    :raises:
+    
+    """
+    with open('/home/ccorby/meraki/project1_ccorby/meraki_lib/reports/uplink_connections.csv', 'w', newline='\n') as f:
+        writer = csv.writer(f, delimiter = ',')
+        writer.writerow(['Network Name', 'Default', 'DC1', 'DC2', 'Others'])
+        orgDict = meraki_functions.getOrgs(ORG_NAME)
+        for org in orgDict:
+            orgID = orgDict[org]
+            netDict = meraki_functions.getNets(orgID)
+            for net in netDict:
+                netID = netDict[net]
+                connections = meraki_functions.getConnectDestinations(netID)
+                default = 'None'
+                dc1 = 'None'
+                dc2 = 'None'
+                #othersList = []
+                if connections != None:
+                    for connect in connections:
+                        if connect['default'] == True:
+                            default = connect['description'] + ':' + connect['ip']
+                        if 'DC1' in connect['description']:
+                            dc1 = connect['description'] + ':' + connect['ip']
+                        elif 'DC2' in connect['description']:
+                            dc2 = connect['description'] + ':' + connect['ip']
+                        #elif connect['default'] == False:
+                        #    othersList.append(connect['description'] + ':' + connect['ip'])
+                    writer.writerow([net, default, dc1, dc2]) #+ othersList)
+def main(argv):
+    ORG_NAME = ''
+    try:
+        # obtaining inputs                                                                                     
+        opts, args = getopt.getopt(argv, 'k:o:')
+    except getopt.GetoptError:
+        sys.exit(2)
+    # parsing arguments passed through                                                                         
+    for opt, arg in opts:
+        if opt == '-k':
+            API_KEY = arg
+        elif opt == '-o':
+            ORG_NAME = arg
+    if API_KEY == '':
+        print("-k isn't optional")
+        sys.exit(2)
+    # default is all organizations                                                                             
+    if ORG_NAME == '':
+        ORG_NAME = '/all'
+    meraki_functions.createDashboard(API_KEY)
+    report(ORG_NAME)
+
+if __name__ == '__main__':
+    main(sys.argv[1:])
+                

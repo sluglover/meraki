@@ -1,0 +1,104 @@
+"""
+Written by Christopher Corby, 12/23/21
+
+This script writes a csv of the IPs for both WAN and LTE of all MXs for a given organization
+
+History:
+ 12/23/21 cmc Created and finished working version
+
+Requirements:
+python3, csv, meraki_functions, sqlite3, sys, getopt
+
+Examples:
+
+"""
+
+import csv, meraki_functions, sys, getopt, sqlite3
+
+# Functions
+
+##########################################################################
+#
+# Function: databaseRoute
+# Description: Creates a report through pulling information from the local sqlite database
+# Inputs: Organization name
+# Outputs: None
+#
+##########################################################################
+
+def databaseRoute(ORG_NAME):
+    con = sqlite3.connect('/home/ccorby/meraki/project1_ccorby/meraki_lib/meraki.db')
+    cur = con.cursor()
+    with open('/home/ccorby/meraki/project1_ccorby/meraki_lib/reports/mx_ips.csv', 'w', newline='\n') as f:
+        writer = csv.writer(f, delimiter = ',')
+        writer.writerow(['Network Name', 'WAN1 IP', 'WAN2 IP'])
+        if ORG_NAME == '/all':
+            # Obtaining all the MX devices through searching if MX is in the model
+            # %_% syntax means whatever before and whatever after _. Can be individual like %_ or _%
+            cur.execute('select * from devices where model like ?', ('%MX%',))
+            rows = cur.fetchall()
+            for row in rows:
+                # Obtaining the name of the network as the network ID is the only thing stored at the device level
+                cur.execute('select Name from networks where ID=?', (row[1],))
+                # returns a tuple
+                netName = cur.fetchone()
+                writer.writerow([netName[0], row[6], row[9]])
+        else:
+            # Obtaining organization ID to pass through devices
+            cur.execute('select ID from organizations where Name=?', (ORG_NAME,))
+            # returns a tuple
+            orgID = cur.fetchone()
+            # Obtaining all devices where MX is in the model, and organization matches orgID
+            cur.execute('select * from devices where orgID=? and model like ?', (orgID[0],'%MX%'))
+            rows = cur.fetchall()
+            for row in rows:
+                # Obtaining the name of the network as the network ID is the only thing stored at the device level
+                cur.execute('select Name from networks where ID=?', (row[1],)) 
+                # returns a tuple
+                netName = cur.fetchone()   
+                writer.writerow([netName[0], row[6], row[9]])
+    con.close()
+
+def pullRoute(ORG_NAME):
+    con = sqlite3.connect('/home/ccorby/meraki/project1_ccorby/meraki_lib/src/files/meraki2.db')
+    cur = con.cursor()
+    with open('/home/ccorby/meraki/project1_ccorby/meraki_lib/reports/mx_ips.csv', 'w', newline='\n') as f:
+        writer = csv.writer(f, delimiter = ',')
+        writer.writerow(['Network Name', 'WAN1 IP', 'WAN2 IP'])
+        if ORG_NAME == '/all':
+            cur.execute('select ID from organizations')
+            orgs = cur.fetchall()
+            for org in orgs:
+                uplinks = getUplinkStatus(org[0])
+                for uplink in uplinks:
+                    writer.writerow([uplink.netID, uplink.wan1_pub_ip, uplink.wan2_pub_ip])
+        else:
+            cur.execute('select ID from organizations where Name=?', (ORG_NAME, ))
+            org = cur.fetchone()[0]
+            uplinks = getUplinkStatus(org)
+            for uplink in uplinks:
+                    writer.writerow([uplink.netID, uplink.wan1_pub_ip, uplink.wan2_pub_ip])
+
+def main(argv):
+    try:
+        # obtaining inputs
+        opts, args = getopt.getopt(argv, 'hk:o:m:')
+    except getopt.GetoptError:
+        sys.exit(2)
+    # parsing arguments passed through 
+    for opt, arg in opts:
+        if opt == '-k':
+            API_KEY = arg
+        elif opt == '-o':
+            ORG_NAME = arg
+    if API_KEY == '':
+        print("-k isn't optional")
+        sys.exit(2)
+    # default is all organizations
+    if ORG_NAME == '':
+        ORG_NAME = '/all'
+    meraki_functions.createDashboard(API_KEY)
+    databaseRoute(ORG_NAME)
+
+if __name__ == '__main__':
+    main(sys.argv[1:])

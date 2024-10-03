@@ -1,0 +1,37 @@
+import asyncio, meraki.aio, sys, getopt
+
+async def processNetworks(aiomeraki: meraki.aio.AsyncDashboardAPI, net):
+    try:
+        networks = await aiomeraki.wireless.getNetworkWirelessBluetoothSettings(net['id'])
+    except meraki.AsyncAPIError as e:
+        print('Error: %s' % e.message)
+    except Exception as e:
+        print('Error: %s' % e)
+    return(None)
+
+async def main(argv):
+    API_KEY = ''
+    try:
+        opts, args = getopt.getopt(argv, 'k:')
+    except getopt.GetoptError:
+        sys.exit(2)
+    for opt, arg in opts:
+        if opt == '-k':
+            API_KEY = arg
+    if API_KEY == '':
+        sys.exit(2)
+    async with meraki.aio.AsyncDashboardAPI(API_KEY, base_url='https://api.meraki.com/api/v1', suppress_logging=True,  maximum_concurrent_requests=200) as aiomeraki:
+        orgs = await aiomeraki.organizations.getOrganizations()
+        nets = []
+        for org in orgs:
+            networks = await aiomeraki.organizations.getOrganizationNetworks(org['id'])
+            nets += networks
+            tasks = [processNetworks(aiomeraki, net) for net in nets]
+            for task in asyncio.as_completed(tasks):
+                await task
+
+if __name__ == '__main__':
+    loop = asyncio.get_event_loop()
+    loop.run_until_complete(main(sys.argv[1:]))
+
+    

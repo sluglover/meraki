@@ -1,0 +1,3 @@
+1. Removing database entirely
+
+Although this is, in most instances, an easy fix by just doing getOrgs(), getNets(), getDevs(), ... etc to parse through the respective organizations, networks, and devices, there are instances where it's nice to have a reverse look up after the fact. The IDs of the next up are usually provided in json, however, so this isn't too bad (netID is given when pulling devices by org, etc)

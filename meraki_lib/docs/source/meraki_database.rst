@@ -1,0 +1,5 @@
+meraki_datbase documentation:
+=============================
+
+.. automodule:: meraki_database
+   :members:

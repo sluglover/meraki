@@ -1,0 +1,587 @@
+Welcome to blc_meraki's documentation!
+**************************************
+
+Written by Christopher Corby, 11/20/21.
+
+This file is a compilation of functions that are useful in pulling
+data from a meraki dashboard.  It is NOT meant to be executed by
+itself, rather imported and utilized by other scripts.
+
+History:
+   11/20/21 cmc Created 11/20/21 cmc Completed working version
+   11/25/21 cmc Changed error output to dictionary of null values in
+   getOrgSNMP, getWanStatus, and getNetFlow 11/27/21 cmc Fixed object
+   issue (don't use hostnames v2). Added new organization-level
+   functions 12/11/21 cmc Changed error output to not supported on API
+   error (essentially when it shouldn't be called) and error on
+   exception (generally syntax error) 12/23/21 cmc Added IPs to device
+   class; pulled from organization uplinks 12/28/21 cmc Added a few
+   test functions (network policies, network topology, network traffic
+   apps) that write json output to a csv, updated WAN1 & WAN2 IPs to
+   public IPs, and started monitoring network traffic 12/29/21 cmc
+   Added event tracking test functions and uplink status change
+   12/30/21 cmc Added primary uplink selection function seperate from
+   load balancing and updated error handling in a few functions where
+   not every device can be pulled (API error)  12/31/21 cmc Added a
+   function to obtain MX device subnets                        1/3/22
+   cmc Added a function and client class for obtaining clients of a
+   device 1/6/22 cmc Changed uplinkChange events to only return the
+   last event for each device, added last reported attribute to uplink
+   status pull 1/10/22 cmc Added docstring  1/20/22 cmc Continued
+   chipping away at the docstrings
+
+Requirements: python 3, getopt, meraki, datetime csv and requests for
+functions still in development
+
+Global variables: DASHBOARD -> Authentication into the dashboard using
+the API Key
+
+Examples: This example obtains all the organization IDs
+
+   createDashboard(API_key) -> creates the connection to the dashboard
+   getOrgs('/all') -> returns a dictionary of all the organizations
+   mapping to their ids
+
+This example obtains all the devices in a list
+
+   devList = [] createDashboard(API_key) -> creates the connection to
+   the dashboard orgDict = getOrgs('/all') -> returns a dictionary of
+   all the organizations mapping to their ids for org in
+   OrgDict.keys():
+
+      orgID = orgDict[org] netDict = getNets(orgID) -> returns a
+      dictionary of all the networks in the organization mapping to
+      their ids for net in netDict.keys():
+
+         netID = netDict[net] devs = getNetDevs(netID) -> returns a
+         list of the devices with serial, model, and name devList +=
+         devs
+
+Alternatively, one could use getOrgDevs to skip the network iteration
+using the orgID and obtain all devices for an organization.
+
+meraki_functions.createDashboard(key)
+
+   Sets the dashboard request key to use in other requests.
+
+   Usage:
+      createDashboard(String of API key)
+
+   Parameters:
+      **key** -- This is the API key used for authentication
+
+   Returns:
+      Nothing. The dashboard key is stored as a global variable.
+
+   Raises:
+      No error if key is wrong, but all other functions will display
+      Unauthorized: Invalid API Key
+
+meraki_functions.getAlertsandRecipients(netID)
+
+   Compiles a list of alert settings for a network, with each alert
+   having the type, if it's enabled, and the recipients
+
+   Usage:
+      getAlertsandRecipients(String of network ID) -> list[alert
+      objects]
+
+   Parameters:
+      **netID** -- ID of the network
+
+   Returns:
+      List of alert objects
+
+   Raises:
+      API error if API key is bad Error on str object if dashboard key
+      isn't initialized
+
+meraki_functions.getDDNSConfiguration(devSerial)
+
+   Compiles a dictonary of ddns hostnames for the device and its WANs.
+   Incompatible with cameras
+
+   Usage:
+      getDDNSConfiguration(String of device serial) ->
+      dictionary{String of active or wan: String of hostname}
+
+   Parameters:
+      **devSerial** -- Device Serial
+
+   Returns:
+      Dictionary mapping active, wan1, and wan2 to their hostnames
+
+   Raises:
+      API error if API key is bad Error on str object if dashboard key
+      isn't initialzied 400 bad request if used on a camera
+
+meraki_functions.getDevLLDP(devSerial)
+
+   Compiles LLDP and CDP information for a device in a CSV file
+
+   Usage:
+      getDevLLDP(String of device serial) ->csv[json format of ports
+      for the protocols]
+
+   Parameters:
+      **devSerial** -- Seriial of the device
+
+   Returns:
+      CSV file in the reports directory
+
+   Raise:
+      API error if API key is bad Error on str object if dashboard key
+      isn't initialized
+
+meraki_functions.getDeviceClients(devSerial)
+
+   Compiles a list of client objects for a given device with
+   attributes ID, description, mac, IP, vlan, and dhcp hostname
+   (doesn't work for cameras)
+
+   Usage:
+      getDeviceClients(String of device serial) -> list[client
+      objects]
+
+   Parameters:
+      **devSerial** -- Serial of the device that you want to obtain
+      the clients for
+
+   Returns:
+      List of client objects
+
+   Raises:
+      API error if API key is bad Error on str object if dashboard key
+      isn't initialized 400 bad request if used on a camera
+
+meraki_functions.getDeviceSubnets(devSerial)
+
+   Compiles a list of subnets for a given MX device. Incompatible with
+   other devices
+
+   Usage:
+      getDeviceSubnets(String of device Serial) -> list[subnets]
+
+   Parameters:
+      **devSerial** -- Serial of the MX device
+
+   Returns:
+      List of subnets
+
+   Raises:
+      API error if API key is bad Error on str object if dashboard key
+      isn't initialized 400 bad request if not used on an MX device
+
+meraki_functions.getEventTypes(netID)
+
+   Compiles a list of event types for a network
+
+   Usage:
+      getEventTypes(String of network ID) -> list[Event type]
+
+   Parameters:
+      **netID** -- ID of the network
+
+   Returns:
+      List of event types
+
+   Raises:
+      API error if API key is bad Error on str object if dashboard key
+      isn't initialized
+
+meraki_functions.getLoadBalancingStatus(netID)
+
+   Obtains whether or not load balancing is enabled for a network
+
+   Usage:
+      getLoadBalancingStatus(String of network ID) -> String saying
+      enabled or disabled
+
+   Parameters:
+      **netID** -- ID of the network
+
+   Returns:
+      Enabled or disabled
+
+   :rasies API error if API key is bad
+      Error on str object if dashboard key isn't initialized 400 bad
+      request if network doesn't have failover capable MX or routed
+      mode enabled
+
+meraki_functions.getNetAlerts(netID)
+
+   Not functional currently. Incompatible with current networks.
+
+   Usage:
+      getNetAlerts(String of network ID) -> printed json
+
+   Parameters:
+      **netID** -- ID of the network
+
+   Returns:
+      json
+
+   Raises:
+      Error on any given network ID
+
+meraki_functions.getNetCommunityString(netID)
+
+   Obtains the community string for a network
+
+   Usage:
+      getNetCommunityString(String of netID) -> String of community
+      string
+
+   Parameters:
+      **netID** -- ID of the network
+
+   Returns:
+      Community string or none if error/nonexistent
+
+   Raises:
+      API error if API key is bad Error ons tr object if dashboard key
+      isn't iniitalized
+
+meraki_functions.getNetDevs(netID)
+
+   Compiles a list of device objects for a given network with name,
+   serial, and model attributes
+
+   Usage:
+      getNetDevs(String of network ID) -> list[device objects]
+
+   Parameters:
+      **netID** -- ID of the network you wish to obtain the devices
+      for
+
+   Returns:
+      List of device objects with name, serial, and model for each
+
+   Raises:
+      API error if API key is bad Error on str object if dashboard key
+      isn't initialized
+
+meraki_functions.getNetEvents(netID)
+
+   Prints all the events for a given network
+
+   Usage:
+      getNetEvents(String of network ID) -> printed events for the
+      network
+
+   Parameters:
+      **netID** -- ID of the network
+
+   Returns:
+      Printed events in json format
+
+   Raises:
+      API error if API key is bad Error on str object if dashboard key
+      isn't initialized
+
+meraki_functions.getNetFlow(netID)
+
+   Compiles a dictonary of the status of traffic reporting and the
+   collector port/IP for a network
+
+   Usage:
+      getNetFlow(String of netID) -> dictionary{traffic reporting,
+      collectorIP, collectorPort}
+
+   Parameters:
+      **netID** -- ID of the network
+
+   Returns:
+      Dictionary of traffic reporting and collector port/IP
+
+   Raises:
+      API error if API key is bad Error on str object if dashboard key
+      isn't initialized
+
+meraki_functions.getNetPolicies(netID)
+
+   Compiles the policies of the network such as scheduling, bandwidth
+   settings, firewall, and traffic shaping settings into a csv for
+   testing.
+
+   Usage:
+      getNetPolicies(String of network ID) -> csv[json format of
+      policies]
+
+   Parameters:
+      **netID** -- ID of the network
+
+   Returns:
+      CSV file in the reports directory
+
+   Raises:
+      API error if API key is bad Error on str object if dashboard key
+      isn't initialized
+
+meraki_functions.getNetTopology(key, netID)
+
+   Still in development due to the pull from meraki being unavailable
+   through their API currently; it needs to be done through get
+   requests Obtains a json of the network topology for a given network
+   in the form of graph nodes. :usage: getNetTopology(String of API
+   key, String of network ID) -> printed json of nodes :param key: API
+   key :param netID: ID of the network :returns: Printed json of the
+   network topology nodes :raises: API error if API key is bad
+
+meraki_functions.getNetTraffic(netID)
+
+   Obtains all the network traffic for the day from the dashboard and
+   compiles them into net_packet classes
+
+   Usage:
+      getNetTraffic(String of network ID) -> list[packet objects]
+
+   Parameters:
+      **netID** -- ID of the network that you wish to get the traffic
+      of
+
+   Returns:
+      List of net packet objects for the past day that contain
+      destination, protocol, number sent/received, and other data
+
+   Raises:
+      API error if API key is bad Error on str object if dashboard key
+      isn't initialized at all
+
+meraki_functions.getNetTrafficAnalysis(netID)
+
+   Obtains a json of the traffic settings for the network. Still in
+   development because there is no current use for it.
+
+   Usage:
+      getNetTrafficAnalysis(String of network ID) -> printed json of
+      traffic settings
+
+   Parameters:
+      **netID** -- ID of the network that you wish to get the settings
+      for
+
+   Returns:
+      Printed json of the traffic settings
+
+   Raises:
+      API error if API key is bad Error on str object if dashboard key
+      isn't initialized
+
+meraki_functions.getNetTrafficApps(netID)
+
+   Compiles all apps downloaded through meraki/ on meraki into a csv.
+
+   Usage:
+      getNetTrafficApps(String of network ID) -> csv[json format of
+      apps]
+
+   Parameters:
+      **netID** -- ID of the network
+
+   Returns:
+      CSV file in reports directory
+
+   Raises:
+      API error if API key is bad Error on str object if dashboard key
+      isn't initialized
+
+meraki_functions.getNets(orgID, netName=None)
+
+   Compiles a dictionary of network name to ID for requested
+   organization and network(s) from the dashboard
+
+   Usage:
+      getNets(String of organization ID, String of network Name) ->
+      dictionary{String of Name: String of ID}
+
+   Parameters:
+      * **orgID** -- ID of the organization that the network is under
+
+      * **netName** -- Optional name of network. Default is none,
+        which pulls all networks
+
+   Returns:
+      Dictionary mapping network name to ID
+
+   Raises:
+      API error if API key is bad Error on str object if dashboard key
+      isn't initalized through createDashboard
+
+meraki_functions.getOrgDevs(orgID)
+
+   Compiles a list of device objects for a given organization with
+   name, serial, model, and network ID attributes
+
+   Usage:
+      getOrgDevs(String of organziation ID) -> list[device objects]
+
+   Parameters:
+      **orgID** -- ID of the organziation you wish to obtain devices
+      for
+
+   Returns:
+      list of device objects with name, serial, model, and network ID
+
+   Raises:
+      API error if API key is bad Error on str object if dashboard key
+      isn't initialized
+
+meraki_functions.getOrgSNMP(orgID)
+
+   Compiles a dictonary of the status of what SNMP version is active
+   for the organization
+
+   Usage:
+      getOrgSNMP(String of organization ID) -> dictionary{String of
+      v2/v3: Enabled/Disabled}
+
+   Parameters:
+      **orgID** -- ID of the organization that the network is under
+
+   Reutrns:
+      Dictionary mapping v2/v3 to status
+
+   Raises:
+      API error if API key is bad Error on str object if dashboard key
+      isn't initialized
+
+meraki_functions.getOrgs(name='/all')
+
+   Compiles a dictionary of organization name to ID for requested
+   organization(s)from the dashboard
+
+   Usage:
+      getOrgs(String of Name) -> dictonary{String of Name: String of
+      ID}
+
+   Parameters:
+      **name** -- Optional organization name. Default is all
+
+   Returns:
+      Dictionary mapping organization name to ID
+
+   Raises:
+      API error if the organization doesn't have requests enabled or
+      the API key is bad Error on str object if dashboard key isn't
+      initalized through createDashboard
+
+meraki_functions.getPrimaryUplink(netID)
+
+   Obtains whether WAN1 or WAN2 is the primary uplink
+
+   Usage:
+      getPrimaryUplink(String of network ID) -> String of WAN1, WAN2,
+      or not configured
+
+   Parameters:
+      **netID** -- ID of the network
+
+   Returns:
+      WAN1, WAN2, or Not supported or not configured
+
+   Raises:
+      API error if API key is bad Error on str object if dashboard key
+      isn't initialized 400 bad request if network doesn't have
+      failover capable MX
+
+meraki_functions.getUplinkChange(netID)
+
+   Obtains the primary uplink status change events for a network
+
+   Usage:
+      getUplinkChange(String of network ID) -> list[Uplink event
+      objects]
+
+   Parameters:
+      **netID** -- ID of the network
+
+   Returns:
+      List of uplink event objects
+
+   Raises:
+      API error if API key is bad Error on str object if dashboard key
+      isn't initialized
+
+meraki_functions.getUplinkStatus(orgID)
+
+   Compiles a list of device objects for a given organization with
+   network ID, serial, model, WAN status and WAN IP attributes
+
+   Usage:
+      getUplinkStatus(String of organziation ID) -> list[device
+      objects]
+
+   Parameters:
+      **orgID** -- ID of the organziation you wish to obtain devices
+      for
+
+   Returns:
+      list of device objects with serial, model, WAN status, WAN IP,
+      and network ID attributes
+
+   Raises:
+      API error if key is bad Error on str object if dashboard key
+      isn't initialized
+
+Written by Christopher Corby, 11/20/21
+
+This file creates and updates a sqlite3 database containing
+information for the meraki ecosystem: organizations, networks,
+devices, and clients
+
+History:
+   11/20/21 cmc Created
+   11/25/21 cmc Finished create method, update method in the works
+   12/4/21  cmc Merged create and update method into one function
+   12/5/21  cmc Finished working version
+   12/11/21 cmc Updated paths for csv and database
+   12/18/21 cmc Added columns WAN1_Last_Active and WAN2_Last_Active in
+   device table       12/23/21 cmc Added columns WAN1_IP and WAN2_IP
+   in device table                         12/28/21 cmc Added column
+   load balancing configuration in network table
+   12/30/21 cmc Added column primary uplink in network table
+   12/31/21 cmc Added table of subnets
+   1/3/22 cmc Added table of clients 1/6/22 cmc Added column of
+   Last_Active to device table, removed WAN1 & WAN2 Last Active 1/7/22
+   cmc Moved primary uplink column to device table instead of network
+   table
+
+Requirements:  python 3, meraki_functions, sqlite3, sys, getopt,
+datetme, csv
+
+Examples: Running the script will create the database if not created.
+Otherwise, it will update all necessary fields.
+
+./meraki_database.py -k API_KEY -o ORGANIZATION_NAME -> Creates the
+sqlite database meraki.db and creates a changelog under the reports
+directory
+
+meraki_database.createDatabase(orgName=None)
+
+   Creates/Updates the sqlite database. Generally not for use outside
+   of the script as a whole.
+
+   Usage:
+      createDatabase(Optional: string of organization name) -> sqlite
+      database and csv file
+
+   Parameters:
+      **orgName** -- Optional string of organization name
+
+   Returns:
+      Sqlite database and csv file
+
+   Raises:
+      Error on str object if meraki_functions.createDashboard isn't
+      initialized with the proper API key
+
+
+Indices and tables
+******************
+
+* Index
+
+* Module Index
+
+* Search Page

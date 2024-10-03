@@ -1,0 +1,349 @@
+#!/usr/bin/env python3
+"""
+Written by Christopher Corby, 2/26/22
+
+This script tracks whether or not all devices are utilizing the same IP as the primary uplink for all networks
+
+History
+ 2/26/22 cmc Created
+ 3/4/22 cmc Finished crude csv output that shows if an IP matches neither WAN1 or 2 
+ 3/5/22 cmc Finished working version
+ 3/12/12 cmc Added option for BLC/HFP in network flag
+ 3/20/22 cmc Actually incorporated parsing by organization/network, which should've been done originally
+ 4/9/22 cmc Added zebra stripes per network
+
+Requirements:
+python 3, csv, meraki_functions, sqlite3, datetime, sys, getopt, smtplib, emailmessage.EmailMessage
+
+Examples:
+
+"""
+
+# Imports
+
+import csv, meraki_functions, sqlite3, datetime, getopt, smtplib, sys
+from email.message import EmailMessage
+
+# Global Variables:
+ORG_NAME = ''
+NET_NAME = ''
+
+# Functions
+
+def dataPull():
+    """
+    Obtains the necessary data for the report and returns as a data structure to be processed into email/csv/other
+
+    :usage: dataPull() -> {net name:[{dev name, dev model, pub IP, internal IP, WAN1, WAN2}]}
+    :returns: Dictionary mapping network names to a list of device dictionaries with device name, model, public IP, internal IP, and WAN1/WAN2 IPs
+    :raises: Error on str object if dashboard key isn't initialized beforehand
+             API error if dashboard key is incorrect
+    
+    """
+    global ORG_NAME
+    global NET_NAME
+    con = sqlite3.connect('/home/ccorby/meraki/project1_ccorby/meraki_lib/src/files/meraki2.db')
+    cur = con.cursor()
+    # map of network name to list of offending devices
+    issues = {}
+    # the reason why I just copied everything for the if else of organizations is because device pulls are by organization and in having two organizations, it's more of a pain to accumulate the calls and then iterate through than to just wrap it in a for loop and then accumulate
+    if ORG_NAME == '/all':
+        cur.execute('select ID from organizations')
+        orgs = cur.fetchall()
+        for org in orgs:
+            orgID = org[0]
+            devList = meraki_functions.getOrgDevStats(orgID)
+            # 2D map of netID to devs (list of indices to devices) and mx (index of mx)
+            netMap = {}
+            j = 0
+            supIdList = []
+            supID = ''
+            # superior hardwoods is broken up into 3 networks, combine it into a single one
+            cur.execute('select ID, Name from networks where Name like ?', ('%Superior Hardwoods%',))
+            rows = cur.fetchall()
+            for row in rows:
+                supIdList.append(row[0])
+                if 'appliance' in row[1]:
+                    supID = row[0]
+            uplinkList = meraki_functions.getUplinkStatus(orgID)
+            for uplink in uplinkList:
+                cur.execute('select Name from devices where Serial=?', (uplink.serial,))
+                devName = cur.fetchone()[0]
+                uplink.name = devName
+                 # reasoning behind this: 1: Some have 2 MXs. Still going with MX1, but good to have info on hand. Additionally, there's a HFP MX that's MX02, but the only one for the network, so that's why I don't go with MX01 straight away 
+                if not uplink.netID in netMap.keys():
+                    netMap[uplink.netID] = {'devs':[], 'mx':[j]}
+                else:
+                    netMap[uplink.netID]['mx'].append(j)
+                j += 1
+            i = 0
+            for dev in devList:
+                if dev.netID in netMap.keys():
+                    netMap[dev.netID]['devs'].append(i)
+                else:
+                    netMap[supID]['devs'].append(i)
+                i+=1
+            for net in netMap.keys():
+                cur.execute('select Name from networks where ID=?', (net,))
+                netName = cur.fetchone()[0]
+                mxs = netMap[net]['mx']
+                devs = netMap[net]['devs']
+                if len(mxs) > 1:
+                    for m in mxs:
+                        if '01' in uplinkList[m].name:
+                            mx = uplinkList[m]
+                else:
+                    mx = uplinkList[mxs[0]]
+                primaryUplink= meraki_functions.getPrimaryUplink(net)
+                if primaryUplink == 'WAN1':
+                    ip = mx.wan1_pub_ip
+                elif primaryUplink == 'WAN2':
+                    ip = mx.wan2_pub_ip
+                else:
+                    #get primary uplink only works for failover capable MX -> default to WAN1 if WAN1 is enabled in the cas ethat it's not a failover capable MX
+                    if mx.wan1_pub_ip == 'not connected' or mx.wan1_pub_ip == 'not configured' or mx.wan1_pub_ip == None:
+                        ip = mx.wan2_pub_ip
+                    else:
+                        ip = mx.wan1_pub_ip
+                for d in devs:
+                    dev = devList[d]
+                    if dev.pub_ip != ip:
+                        val = {'name':dev.name, 'model':dev.model, 'pubIP':dev.pub_ip, 'lanIP':dev.lan_ip, 'WAN1':mx.wan1_pub_ip, 'WAN2':mx.wan2_pub_ip}
+                        if not netName in issues.keys():
+                            issues[netName] = [val]
+                        else:
+                            issues[netName].append(val)
+    else:
+        cur.execute('select ID from organizations where Name=?', (ORG_NAME,))
+        orgID = cur.fetchone()[0]
+        devList = meraki_functions.getOrgDevStats(orgID)
+        # 2D map of netID to list (list of indices to devices) and mx (index of mx)
+        netMap = {}
+        j = 0
+        supIdList = []
+        supID = ''
+        # superior hardwoods is broken up into 3 networks, combine it into a single one
+        cur.execute('select ID, Name from networks where Name like ?', ('%Superior Hardwoods%',))
+        rows = cur.fetchall()
+        for row in rows:
+            supIdList.append(row[0])
+            if 'appliance' in row[1]:
+                supID = row[0]
+        uplinkList = meraki_functions.getUplinkStatus(orgID)
+        for uplink in uplinkList:
+            cur.execute('select Name from devices where Serial=?', (uplink.serial,))
+            devName = cur.fetchone()
+            if devName != None:
+                uplink.name = devName[0]
+            else:
+                uplink.name = 'Unnamed device'
+            # reasoning behind this: 1: Some have 2 MXs. Still going with MX1, but good to have info on hand. Additionally, there's a HFP MX that's MX02, but the only one for the network, so that's why I don't go with MX01 straight away
+            if not uplink.netID in netMap.keys():
+                netMap[uplink.netID] = {'devs':[], 'mx':[j]}
+            else:
+                netMap[uplink.netID]['mx'].append(j)
+            j += 1
+        i = 0
+        for dev in devList:
+            if dev.netID in netMap.keys():
+                netMap[dev.netID]['devs'].append(i)
+            else:
+                # the only ones that shouldn't already be in the netMap are the other superior hardwoods stuff
+                netMap[supID]['devs'].append(i)
+            i += 1
+        for net in netMap.keys():
+            if NET_NAME != '':
+                # changing NET_NAME to allow for SQL queries in part like BLC and HFP
+                NET_NAME = '%' + NET_NAME + '%'
+                cur.execute('select Name from networks where ID=? and name like ?', (net,NET_NAME))
+                netName = cur.fetchone()
+                if netName != None:
+                    netName = netName[0]
+                    mxs = netMap[net]['mx']
+                    devs = netMap[net]['devs']
+                    if len(mxs) > 1:
+                        for m in mxs:
+                            if '01' in uplinkList[m].name:
+                                mx = uplinkList[m]
+                    else:
+                        mx = uplinkList[mxs[0]]
+                    primaryUplink= meraki_functions.getPrimaryUplink(net)
+                    if primaryUplink == 'WAN1':
+                        ip = mx.wan1_pub_ip
+                    elif primaryUplink == 'WAN2':
+                        ip = mx.wan2_pub_ip
+                    else:
+                        # get primary uplink only works for failover capable MX -> default to WAN1 if WAN1 is enabled in the case that failover doesn't work
+                        if mx.wan1_pub_ip == 'not connected' or mx.wan1_pub_ip == 'not configured' or mx.wan1_pub_ip == None:
+                            ip = mx.wan2_pub_ip
+                        else:
+                            ip = mx.wan1_pub_ip
+                    for d in devs:
+                        dev = devList[d]
+                        if dev.pub_ip != ip:
+                            val = {'name':dev.name, 'model':dev.model, 'pubIP':dev.pub_ip, 'lanIP':dev.lan_ip, 'WAN1':mx.wan1_pub_ip, 'WAN2':mx.wan2_pub_ip}
+                            if not netName in issues.keys():
+                                issues[netName] = [val]
+                            else:
+                                issues[netName].append(val)
+            else:
+                cur.execute('select Name from networks where ID=?', (net,))
+                netName = cur.fetchone()[0]
+                mxs = netMap[net]['mx']
+                devs = netMap[net]['devs']
+                if len(mxs) > 1:
+                    for m in mxs:
+                        if '01' in uplinkList[m].name:
+                            mx = uplinkList[m]
+                else:
+                    mx = uplinkList[mxs[0]]
+                primaryUplink= meraki_functions.getPrimaryUplink(net)
+                if primaryUplink == 'WAN1':
+                    ip = mx.wan1_pub_ip
+                elif primaryUplink == 'WAN2':
+                    ip = mx.wan2_pub_ip
+                else:
+                    #  get primary uplink only works for failover capable MX -> default to WAN1 if WAN1 is enabled in this case
+                    if mx.wan1_pub_ip == 'not connected' or mx.wan1_pub_ip == 'not configured' or mx.wan1_pub_ip == None:
+                        ip = mx.wan2_pub_ip
+                    else:
+                        ip = mx.wan1_pub_ip
+                for d in devs:
+                    dev = devList[d]
+                    if dev.pub_ip != ip:
+                        val = {'name':dev.name, 'model':dev.model, 'pubIP':dev.pub_ip, 'lanIP':dev.lan_ip, 'WAN1':mx.wan1_pub_ip, 'WAN2':mx.wan2_pub_ip}
+                        if not netName in issues.keys():
+                            issues[netName] = [val]
+                        else:
+                            issues[netName].append(val)
+    con.close()
+    return(issues)
+
+def toCSV(issues):
+    """
+    Converts the dictionary of devices with issues into a readable csv file in the reports directory
+    
+    :usage: toCSV(dictionary of issues) -> public_ips.csv
+    :param issues: Output of dataPull(); dictionary of list of dictionaries detailing device info
+    :returns:  public_ips.csv
+    :raises: 
+    
+    """
+    with open('/home/ccorby/meraki/project1_ccorby/meraki_lib/reports/public_ips.csv', 'w', newline='\n') as f:
+        writer = csv.writer(f, delimiter = ',')
+        writer.writerow(['Network Name', 'Device Name', 'Device Model', 'Public IP', 'LAN IP', 'WAN1 IP', 'WAN2 IP'])
+        for netName in issues.keys():
+            for dev in issues[netName]:
+                writer.writerow([netName, dev['name'], dev['model'], dev['pubIP'], dev['lanIP'], dev['WAN1'], dev['WAN2']])
+        time = datetime.datetime.now()
+        writer.writerow([time])
+
+def toEmail(issues):
+    """
+    Converts the dictionary of devices with issues into an outlook email
+    
+    :usage: toEmail(dictionary of issues) -> outlook email
+    :param issues: Output of dataPull(); dictionary of list of dictionaries detailing device info
+    :returns: outlook email
+    :raises:
+
+    """
+    msg = EmailMessage()
+    msg['Subject'] = 'Mismatched Public IP Report'
+    msg['From'] = 'ccorby@chiutility.com'
+    recipients = ['ccorby@baillie.com']
+    msg['To'] = ','.join(recipients)
+    tableRows = ''
+    color = 'white'
+    for net in issues.keys():
+        # hack way of doing zebra print per network because I hate CSS and javascript
+        if color == 'white':
+            color = 'gray'
+        else:
+            color = 'white'
+        for i in issues[net]:
+            tableRows += f"""
+            <tr>
+            <td bgcolor={color}>{net}</td>
+            <td bgcolor={color}>{i['name']}</td>
+            <td bgcolor={color}>{i['model']}</td>
+            <td bgcolor={color}>{i['pubIP']}</td>
+            <td bgcolor={color}>{i['lanIP']}</td>
+            <td bgcolor={color}>{i['WAN1']}</td>
+            <td bgcolor={color}>{i['WAN2']}</td>
+            </tr>
+            """
+    time = datetime.datetime.now()
+    msg.add_alternative(f"""
+    <html>
+         <head>
+           <style>
+             table, th, td {{
+             border: 1px solid black;
+             border-collapse:collapse;
+             border-style:solid;}}
+           </style>
+         </head>
+         <body>
+           <table>
+             <tr><th colspan='7'>Mismatched IP Report per Network</th></tr>
+             <tr>
+               <th>Network</th>
+               <th>Name</th>
+               <th>Model</th>
+               <th>Public IP</th>
+               <th>LAN IP</th>
+               <th>WAN1</th>
+               <th>WAN2</th>
+             </tr>
+             {tableRows}
+             <tr>
+               <td>Timestamp</td>
+               <td colspan='6'>{time}</td>
+            </table>
+         </body>
+    </html>
+    """, subtype='html')
+    with open('/home/ccorby/meraki/project1_ccorby/meraki_lib/reports/public_ips.csv', 'rb') as f:
+        msg.add_attachment(f.read(), maintype='text', subtype='text/csv', filename='public_ips.csv')
+    s = smtplib.SMTP('baillie-com.mail.protection.outlook.com')
+    s.send_message(msg)
+    s.quit()
+
+def main(argv):
+    API_KEY = ''
+    global ORG_NAME
+    global NET_NAME
+    email = False
+    csv = False
+    try:
+        opts, args = getopt.getopt(argv, 'cek:o:n:')
+    except getopt.GetoptError:
+        sys.exit(2)
+    # parsing arguments passed through                                                   
+    for opt, arg in opts:
+        if opt == '-k':
+            API_KEY = arg
+        elif opt == '-o':
+            ORG_NAME = arg
+        elif opt == '-n':
+            NET_NAME = arg
+        elif opt == '-e':
+            email = True
+        elif opt == '-c':
+            csv = True
+    # default is all organizations                                                      
+    if ORG_NAME == '':
+        ORG_NAME = '/all'
+    if API_KEY == '':
+        sys.exit(2)
+    else:
+        meraki_functions.createDashboard(API_KEY)
+    a = dataPull()
+    if csv == True:
+        toCSV(a)
+    if email == True:
+        toEmail(a)
+
+if __name__ == '__main__':
+    main(sys.argv[1:])

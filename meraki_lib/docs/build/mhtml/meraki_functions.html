@@ -1,0 +1,681 @@
+
+<!DOCTYPE html>
+
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="generator" content="Docutils 0.17.1: http://docutils.sourceforge.net/" />
+
+    <title>meraki_functions documentation: &#8212; blc_meraki 0.1 documentation</title>
+    <link rel="stylesheet" type="text/css" href="_static/pygments.css" />
+    <link rel="stylesheet" type="text/css" href="_static/alabaster.css" />
+    <script data-url_root="./" id="documentation_options" src="_static/documentation_options.js"></script>
+    <script src="_static/jquery.js"></script>
+    <script src="_static/underscore.js"></script>
+    <script src="_static/doctools.js"></script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="next" title="meraki_datbase documentation:" href="meraki_database.html" />
+    <link rel="prev" title="Installation" href="install.html" />
+   
+  <link rel="stylesheet" href="_static/custom.css" type="text/css" />
+  
+  
+  <meta name="viewport" content="width=device-width, initial-scale=0.9, maximum-scale=0.9" />
+
+  </head><body>
+  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          
+
+          <div class="body" role="main">
+            
+  <section id="module-meraki_functions">
+<span id="meraki-functions-documentation"></span><h1>meraki_functions documentation:<a class="headerlink" href="#module-meraki_functions" title="Permalink to this headline">¶</a></h1>
+<p>Written by Christopher Corby, 11/20/21.</p>
+<p>This file is a compilation of functions that are useful in pulling data from a meraki dashboard. 
+It is NOT meant to be executed by itself, rather imported and utilized by other scripts.</p>
+<dl class="simple">
+<dt>History:</dt><dd><p>11/20/21 cmc Created
+11/20/21 cmc Completed working version
+11/25/21 cmc Changed error output to dictionary of null values in getOrgSNMP, getWanStatus, and getNetFlow
+11/27/21 cmc Fixed object issue (don’t use hostnames v2). Added new organization-level functions
+12/11/21 cmc Changed error output to not supported on API error (essentially when it shouldn’t be called) and error on exception (generally syntax error)
+12/23/21 cmc Added IPs to device class; pulled from organization uplinks
+12/28/21 cmc Added a few test functions (network policies, network topology, network traffic apps) that write json output to a csv, updated WAN1 &amp; WAN2 IPs to public IPs, and started monitoring network traffic
+12/29/21 cmc Added event tracking test functions and uplink status change
+12/30/21 cmc Added primary uplink selection function seperate from load balancing and updated error handling in a few functions where not every device can be pulled (API error) 
+12/31/21 cmc Added a function to obtain MX device subnets
+1/3/22 cmc Added a function and client class for obtaining clients of a device
+1/6/22 cmc Changed uplinkChange events to only return the last event for each device, added last reported attribute to uplink status pull
+1/10/22 cmc Added docstring 
+1/20/22 cmc Continued chipping away at the docstrings</p>
+</dd>
+</dl>
+<p>Requirements:
+python 3, getopt, meraki, datetime
+csv and requests for functions still in development</p>
+<p>Global variables:
+DASHBOARD -&gt; Authentication into the dashboard using the API Key</p>
+<p>Examples:
+This example obtains all the organization IDs</p>
+<blockquote>
+<div><p>createDashboard(API_key) -&gt; creates the connection to the dashboard
+getOrgs(‘/all’) -&gt; returns a dictionary of all the organizations mapping to their ids</p>
+</div></blockquote>
+<p>This example obtains all the devices in a list</p>
+<blockquote>
+<div><p>devList = []
+createDashboard(API_key) -&gt; creates the connection to the dashboard
+orgDict = getOrgs(‘/all’) -&gt; returns a dictionary of all the organizations mapping to their ids
+for org in OrgDict.keys():</p>
+<blockquote>
+<div><p>orgID = orgDict[org]
+netDict = getNets(orgID) -&gt; returns a dictionary of all the networks in the organization mapping to their ids
+for net in netDict.keys():</p>
+<blockquote>
+<div><p>netID = netDict[net]
+devs = getNetDevs(netID) -&gt; returns a list of the devices with serial, model, and name
+devList += devs</p>
+</div></blockquote>
+</div></blockquote>
+</div></blockquote>
+<p>Alternatively, one could use getOrgDevs to skip the network iteration using the orgID and obtain all devices for an organization.</p>
+<dl class="py function">
+<dt class="sig sig-object py" id="meraki_functions.createDashboard">
+<span class="sig-prename descclassname"><span class="pre">meraki_functions.</span></span><span class="sig-name descname"><span class="pre">createDashboard</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">key</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#meraki_functions.createDashboard" title="Permalink to this definition">¶</a></dt>
+<dd><p>Sets the dashboard request key to use in other requests.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Usage</dt>
+<dd class="field-odd"><p>createDashboard(String of API key)</p>
+</dd>
+<dt class="field-even">Parameters</dt>
+<dd class="field-even"><p><strong>key</strong> – This is the API key used for authentication</p>
+</dd>
+<dt class="field-odd">Returns</dt>
+<dd class="field-odd"><p>Nothing. The dashboard key is stored as a global variable.</p>
+</dd>
+<dt class="field-even">Raises</dt>
+<dd class="field-even"><p>No error if key is wrong, but all other functions will display Unauthorized: Invalid API Key</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="meraki_functions.getAlertsandRecipients">
+<span class="sig-prename descclassname"><span class="pre">meraki_functions.</span></span><span class="sig-name descname"><span class="pre">getAlertsandRecipients</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">netID</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#meraki_functions.getAlertsandRecipients" title="Permalink to this definition">¶</a></dt>
+<dd><p>Compiles a list of alert settings for a network, with each alert having the type, if it’s enabled, and the recipients</p>
+<dl class="field-list simple">
+<dt class="field-odd">Usage</dt>
+<dd class="field-odd"><p>getAlertsandRecipients(String of network ID) -&gt; list[alert objects]</p>
+</dd>
+<dt class="field-even">Parameters</dt>
+<dd class="field-even"><p><strong>netID</strong> – ID of the network</p>
+</dd>
+<dt class="field-odd">Returns</dt>
+<dd class="field-odd"><p>List of alert objects</p>
+</dd>
+<dt class="field-even">Raises</dt>
+<dd class="field-even"><p>API error if API key is bad
+Error on str object if dashboard key isn’t initialized</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="meraki_functions.getDDNSConfiguration">
+<span class="sig-prename descclassname"><span class="pre">meraki_functions.</span></span><span class="sig-name descname"><span class="pre">getDDNSConfiguration</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">devSerial</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#meraki_functions.getDDNSConfiguration" title="Permalink to this definition">¶</a></dt>
+<dd><p>Compiles a dictonary of ddns hostnames for the device and its WANs. Incompatible with cameras</p>
+<dl class="field-list simple">
+<dt class="field-odd">Usage</dt>
+<dd class="field-odd"><p>getDDNSConfiguration(String of device serial) -&gt; dictionary{String of active or wan: String of hostname}</p>
+</dd>
+<dt class="field-even">Parameters</dt>
+<dd class="field-even"><p><strong>devSerial</strong> – Device Serial</p>
+</dd>
+<dt class="field-odd">Returns</dt>
+<dd class="field-odd"><p>Dictionary mapping active, wan1, and wan2 to their hostnames</p>
+</dd>
+<dt class="field-even">Raises</dt>
+<dd class="field-even"><p>API error if API key is bad
+Error on str object if dashboard key isn’t initialzied
+400 bad request if used on a camera</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="meraki_functions.getDevLLDP">
+<span class="sig-prename descclassname"><span class="pre">meraki_functions.</span></span><span class="sig-name descname"><span class="pre">getDevLLDP</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">devSerial</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#meraki_functions.getDevLLDP" title="Permalink to this definition">¶</a></dt>
+<dd><p>Compiles LLDP and CDP information for a device in a CSV file</p>
+<dl class="field-list simple">
+<dt class="field-odd">Usage</dt>
+<dd class="field-odd"><p>getDevLLDP(String of device serial) -&gt;csv[json format of ports for the protocols]</p>
+</dd>
+<dt class="field-even">Parameters</dt>
+<dd class="field-even"><p><strong>devSerial</strong> – Seriial of the device</p>
+</dd>
+<dt class="field-odd">Returns</dt>
+<dd class="field-odd"><p>CSV file in the reports directory</p>
+</dd>
+<dt class="field-even">Raise</dt>
+<dd class="field-even"><p>API error if API key is bad
+Error on str object if dashboard key isn’t initialized</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="meraki_functions.getDeviceClients">
+<span class="sig-prename descclassname"><span class="pre">meraki_functions.</span></span><span class="sig-name descname"><span class="pre">getDeviceClients</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">devSerial</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#meraki_functions.getDeviceClients" title="Permalink to this definition">¶</a></dt>
+<dd><p>Compiles a list of client objects for a given device with attributes ID, description, mac, IP, vlan, and dhcp hostname (doesn’t work for cameras)</p>
+<dl class="field-list simple">
+<dt class="field-odd">Usage</dt>
+<dd class="field-odd"><p>getDeviceClients(String of device serial) -&gt; list[client objects]</p>
+</dd>
+<dt class="field-even">Parameters</dt>
+<dd class="field-even"><p><strong>devSerial</strong> – Serial of the device that you want to obtain the clients for</p>
+</dd>
+<dt class="field-odd">Returns</dt>
+<dd class="field-odd"><p>List of client objects</p>
+</dd>
+<dt class="field-even">Raises</dt>
+<dd class="field-even"><p>API error if API key is bad
+Error on str object if dashboard key isn’t initialized
+400 bad request if used on a camera</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="meraki_functions.getDeviceSubnets">
+<span class="sig-prename descclassname"><span class="pre">meraki_functions.</span></span><span class="sig-name descname"><span class="pre">getDeviceSubnets</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">devSerial</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#meraki_functions.getDeviceSubnets" title="Permalink to this definition">¶</a></dt>
+<dd><p>Compiles a list of subnets for a given MX device. Incompatible with other devices</p>
+<dl class="field-list simple">
+<dt class="field-odd">Usage</dt>
+<dd class="field-odd"><p>getDeviceSubnets(String of device Serial) -&gt; list[subnets]</p>
+</dd>
+<dt class="field-even">Parameters</dt>
+<dd class="field-even"><p><strong>devSerial</strong> – Serial of the MX device</p>
+</dd>
+<dt class="field-odd">Returns</dt>
+<dd class="field-odd"><p>List of subnets</p>
+</dd>
+<dt class="field-even">Raises</dt>
+<dd class="field-even"><p>API error if API key is bad
+Error on str object if dashboard key isn’t initialized
+400 bad request if not used on an MX device</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="meraki_functions.getEventTypes">
+<span class="sig-prename descclassname"><span class="pre">meraki_functions.</span></span><span class="sig-name descname"><span class="pre">getEventTypes</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">netID</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#meraki_functions.getEventTypes" title="Permalink to this definition">¶</a></dt>
+<dd><p>Compiles a list of event types for a network</p>
+<dl class="field-list simple">
+<dt class="field-odd">Usage</dt>
+<dd class="field-odd"><p>getEventTypes(String of network ID) -&gt; list[Event type]</p>
+</dd>
+<dt class="field-even">Parameters</dt>
+<dd class="field-even"><p><strong>netID</strong> – ID of the network</p>
+</dd>
+<dt class="field-odd">Returns</dt>
+<dd class="field-odd"><p>List of event types</p>
+</dd>
+<dt class="field-even">Raises</dt>
+<dd class="field-even"><p>API error if API key is bad
+Error on str object if dashboard key isn’t initialized</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="meraki_functions.getLoadBalancingStatus">
+<span class="sig-prename descclassname"><span class="pre">meraki_functions.</span></span><span class="sig-name descname"><span class="pre">getLoadBalancingStatus</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">netID</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#meraki_functions.getLoadBalancingStatus" title="Permalink to this definition">¶</a></dt>
+<dd><p>Obtains whether or not load balancing is enabled for a network</p>
+<dl class="field-list simple">
+<dt class="field-odd">Usage</dt>
+<dd class="field-odd"><p>getLoadBalancingStatus(String of network ID) -&gt; String saying enabled or disabled</p>
+</dd>
+<dt class="field-even">Parameters</dt>
+<dd class="field-even"><p><strong>netID</strong> – ID of the network</p>
+</dd>
+<dt class="field-odd">Returns</dt>
+<dd class="field-odd"><p>Enabled or disabled</p>
+</dd>
+<dt class="field-even">Rasies</dt>
+<dd class="field-even"><p>API error if API key is bad
+Error on str object if dashboard key isn’t initialized
+400 bad request if network doesn’t have failover capable MX or routed mode enabled</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="meraki_functions.getNetAlerts">
+<span class="sig-prename descclassname"><span class="pre">meraki_functions.</span></span><span class="sig-name descname"><span class="pre">getNetAlerts</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">netID</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#meraki_functions.getNetAlerts" title="Permalink to this definition">¶</a></dt>
+<dd><p>Not functional currently. Incompatible with current networks.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Usage</dt>
+<dd class="field-odd"><p>getNetAlerts(String of network ID) -&gt; printed json</p>
+</dd>
+<dt class="field-even">Parameters</dt>
+<dd class="field-even"><p><strong>netID</strong> – ID of the network</p>
+</dd>
+<dt class="field-odd">Returns</dt>
+<dd class="field-odd"><p>json</p>
+</dd>
+<dt class="field-even">Raises</dt>
+<dd class="field-even"><p>Error on any given network ID</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="meraki_functions.getNetCommunityString">
+<span class="sig-prename descclassname"><span class="pre">meraki_functions.</span></span><span class="sig-name descname"><span class="pre">getNetCommunityString</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">netID</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#meraki_functions.getNetCommunityString" title="Permalink to this definition">¶</a></dt>
+<dd><p>Obtains the community string for a network</p>
+<dl class="field-list simple">
+<dt class="field-odd">Usage</dt>
+<dd class="field-odd"><p>getNetCommunityString(String of netID) -&gt; String of community string</p>
+</dd>
+<dt class="field-even">Parameters</dt>
+<dd class="field-even"><p><strong>netID</strong> – ID of the network</p>
+</dd>
+<dt class="field-odd">Returns</dt>
+<dd class="field-odd"><p>Community string or none if error/nonexistent</p>
+</dd>
+<dt class="field-even">Raises</dt>
+<dd class="field-even"><p>API error if API key is bad
+Error ons tr object if dashboard key isn’t iniitalized</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="meraki_functions.getNetDevs">
+<span class="sig-prename descclassname"><span class="pre">meraki_functions.</span></span><span class="sig-name descname"><span class="pre">getNetDevs</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">netID</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#meraki_functions.getNetDevs" title="Permalink to this definition">¶</a></dt>
+<dd><p>Compiles a list of device objects for a given network with name, serial, and model attributes</p>
+<dl class="field-list simple">
+<dt class="field-odd">Usage</dt>
+<dd class="field-odd"><p>getNetDevs(String of network ID) -&gt; list[device objects]</p>
+</dd>
+<dt class="field-even">Parameters</dt>
+<dd class="field-even"><p><strong>netID</strong> – ID of the network you wish to obtain the devices for</p>
+</dd>
+<dt class="field-odd">Returns</dt>
+<dd class="field-odd"><p>List of device objects with name, serial, and model for each</p>
+</dd>
+<dt class="field-even">Raises</dt>
+<dd class="field-even"><p>API error if API key is bad
+Error on str object if dashboard key isn’t initialized</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="meraki_functions.getNetEvents">
+<span class="sig-prename descclassname"><span class="pre">meraki_functions.</span></span><span class="sig-name descname"><span class="pre">getNetEvents</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">netID</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#meraki_functions.getNetEvents" title="Permalink to this definition">¶</a></dt>
+<dd><p>Prints all the events for a given network</p>
+<dl class="field-list simple">
+<dt class="field-odd">Usage</dt>
+<dd class="field-odd"><p>getNetEvents(String of network ID) -&gt; printed events for the network</p>
+</dd>
+<dt class="field-even">Parameters</dt>
+<dd class="field-even"><p><strong>netID</strong> – ID of the network</p>
+</dd>
+<dt class="field-odd">Returns</dt>
+<dd class="field-odd"><p>Printed events in json format</p>
+</dd>
+<dt class="field-even">Raises</dt>
+<dd class="field-even"><p>API error if API key is bad
+Error on str object if dashboard key isn’t initialized</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="meraki_functions.getNetFlow">
+<span class="sig-prename descclassname"><span class="pre">meraki_functions.</span></span><span class="sig-name descname"><span class="pre">getNetFlow</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">netID</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#meraki_functions.getNetFlow" title="Permalink to this definition">¶</a></dt>
+<dd><p>Compiles a dictonary of the status of traffic reporting and the collector port/IP for a network</p>
+<dl class="field-list simple">
+<dt class="field-odd">Usage</dt>
+<dd class="field-odd"><p>getNetFlow(String of netID) -&gt; dictionary{traffic reporting, collectorIP, collectorPort}</p>
+</dd>
+<dt class="field-even">Parameters</dt>
+<dd class="field-even"><p><strong>netID</strong> – ID of the network</p>
+</dd>
+<dt class="field-odd">Returns</dt>
+<dd class="field-odd"><p>Dictionary of traffic reporting and collector port/IP</p>
+</dd>
+<dt class="field-even">Raises</dt>
+<dd class="field-even"><p>API error if API key is bad
+Error on str object if dashboard key isn’t initialized</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="meraki_functions.getNetPolicies">
+<span class="sig-prename descclassname"><span class="pre">meraki_functions.</span></span><span class="sig-name descname"><span class="pre">getNetPolicies</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">netID</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#meraki_functions.getNetPolicies" title="Permalink to this definition">¶</a></dt>
+<dd><p>Compiles the policies of the network such as scheduling, bandwidth settings, firewall, and traffic shaping settings into a csv for testing.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Usage</dt>
+<dd class="field-odd"><p>getNetPolicies(String of network ID) -&gt; csv[json format of policies]</p>
+</dd>
+<dt class="field-even">Parameters</dt>
+<dd class="field-even"><p><strong>netID</strong> – ID of the network</p>
+</dd>
+<dt class="field-odd">Returns</dt>
+<dd class="field-odd"><p>CSV file in the reports directory</p>
+</dd>
+<dt class="field-even">Raises</dt>
+<dd class="field-even"><p>API error if API key is bad
+Error on str object if dashboard key isn’t initialized</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="meraki_functions.getNetTopology">
+<span class="sig-prename descclassname"><span class="pre">meraki_functions.</span></span><span class="sig-name descname"><span class="pre">getNetTopology</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">key</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">netID</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#meraki_functions.getNetTopology" title="Permalink to this definition">¶</a></dt>
+<dd><p>Still in development due to the pull from meraki being unavailable through their API currently; it needs to be done through get requests
+Obtains a json of the network topology for a given network in the form of graph nodes.
+:usage: getNetTopology(String of API key, String of network ID) -&gt; printed json of nodes
+:param key: API key
+:param netID: ID of the network
+:returns: Printed json of the network topology nodes
+:raises: API error if API key is bad</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="meraki_functions.getNetTraffic">
+<span class="sig-prename descclassname"><span class="pre">meraki_functions.</span></span><span class="sig-name descname"><span class="pre">getNetTraffic</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">netID</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#meraki_functions.getNetTraffic" title="Permalink to this definition">¶</a></dt>
+<dd><p>Obtains all the network traffic for the day from the dashboard and compiles them into net_packet classes</p>
+<dl class="field-list simple">
+<dt class="field-odd">Usage</dt>
+<dd class="field-odd"><p>getNetTraffic(String of network ID) -&gt; list[packet objects]</p>
+</dd>
+<dt class="field-even">Parameters</dt>
+<dd class="field-even"><p><strong>netID</strong> – ID of the network that you wish to get the traffic of</p>
+</dd>
+<dt class="field-odd">Returns</dt>
+<dd class="field-odd"><p>List of net packet objects for the past day that contain destination, protocol, number sent/received, and other data</p>
+</dd>
+<dt class="field-even">Raises</dt>
+<dd class="field-even"><p>API error if API key is bad
+Error on str object if dashboard key isn’t initialized at all</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="meraki_functions.getNetTrafficAnalysis">
+<span class="sig-prename descclassname"><span class="pre">meraki_functions.</span></span><span class="sig-name descname"><span class="pre">getNetTrafficAnalysis</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">netID</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#meraki_functions.getNetTrafficAnalysis" title="Permalink to this definition">¶</a></dt>
+<dd><p>Obtains a json of the traffic settings for the network. Still in development because there is no current use for it.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Usage</dt>
+<dd class="field-odd"><p>getNetTrafficAnalysis(String of network ID) -&gt; printed json of traffic settings</p>
+</dd>
+<dt class="field-even">Parameters</dt>
+<dd class="field-even"><p><strong>netID</strong> – ID of the network that you wish to get the settings for</p>
+</dd>
+<dt class="field-odd">Returns</dt>
+<dd class="field-odd"><p>Printed json of the traffic settings</p>
+</dd>
+<dt class="field-even">Raises</dt>
+<dd class="field-even"><p>API error if API key is bad
+Error on str object if dashboard key isn’t initialized</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="meraki_functions.getNetTrafficApps">
+<span class="sig-prename descclassname"><span class="pre">meraki_functions.</span></span><span class="sig-name descname"><span class="pre">getNetTrafficApps</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">netID</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#meraki_functions.getNetTrafficApps" title="Permalink to this definition">¶</a></dt>
+<dd><p>Compiles all apps downloaded through meraki/ on meraki into a csv.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Usage</dt>
+<dd class="field-odd"><p>getNetTrafficApps(String of network ID) -&gt; csv[json format of apps]</p>
+</dd>
+<dt class="field-even">Parameters</dt>
+<dd class="field-even"><p><strong>netID</strong> – ID of the network</p>
+</dd>
+<dt class="field-odd">Returns</dt>
+<dd class="field-odd"><p>CSV file in reports directory</p>
+</dd>
+<dt class="field-even">Raises</dt>
+<dd class="field-even"><p>API error if API key is bad
+Error on str object if dashboard key isn’t initialized</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="meraki_functions.getNets">
+<span class="sig-prename descclassname"><span class="pre">meraki_functions.</span></span><span class="sig-name descname"><span class="pre">getNets</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">orgID</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">netName</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#meraki_functions.getNets" title="Permalink to this definition">¶</a></dt>
+<dd><p>Compiles a dictionary of network name to ID for requested organization and network(s) from the dashboard</p>
+<dl class="field-list simple">
+<dt class="field-odd">Usage</dt>
+<dd class="field-odd"><p>getNets(String of organization ID, String of network Name) -&gt; dictionary{String of Name: String of ID}</p>
+</dd>
+<dt class="field-even">Parameters</dt>
+<dd class="field-even"><ul class="simple">
+<li><p><strong>orgID</strong> – ID of the organization that the network is under</p></li>
+<li><p><strong>netName</strong> – Optional name of network. Default is none, which pulls all networks</p></li>
+</ul>
+</dd>
+<dt class="field-odd">Returns</dt>
+<dd class="field-odd"><p>Dictionary mapping network name to ID</p>
+</dd>
+<dt class="field-even">Raises</dt>
+<dd class="field-even"><p>API error if API key is bad
+Error on str object if dashboard key isn’t initalized through createDashboard</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="meraki_functions.getOrgDevs">
+<span class="sig-prename descclassname"><span class="pre">meraki_functions.</span></span><span class="sig-name descname"><span class="pre">getOrgDevs</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">orgID</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#meraki_functions.getOrgDevs" title="Permalink to this definition">¶</a></dt>
+<dd><p>Compiles a list of device objects for a given organization with name, serial, model, and network ID attributes</p>
+<dl class="field-list simple">
+<dt class="field-odd">Usage</dt>
+<dd class="field-odd"><p>getOrgDevs(String of organziation ID) -&gt; list[device objects]</p>
+</dd>
+<dt class="field-even">Parameters</dt>
+<dd class="field-even"><p><strong>orgID</strong> – ID of the organziation you wish to obtain devices for</p>
+</dd>
+<dt class="field-odd">Returns</dt>
+<dd class="field-odd"><p>list of device objects with name, serial, model, and network ID</p>
+</dd>
+<dt class="field-even">Raises</dt>
+<dd class="field-even"><p>API error if API key is bad
+Error on str object if dashboard key isn’t initialized</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="meraki_functions.getOrgSNMP">
+<span class="sig-prename descclassname"><span class="pre">meraki_functions.</span></span><span class="sig-name descname"><span class="pre">getOrgSNMP</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">orgID</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#meraki_functions.getOrgSNMP" title="Permalink to this definition">¶</a></dt>
+<dd><p>Compiles a dictonary of the status of what SNMP version is active for the organization</p>
+<dl class="field-list simple">
+<dt class="field-odd">Usage</dt>
+<dd class="field-odd"><p>getOrgSNMP(String of organization ID) -&gt; dictionary{String of v2/v3: Enabled/Disabled}</p>
+</dd>
+<dt class="field-even">Parameters</dt>
+<dd class="field-even"><p><strong>orgID</strong> – ID of the organization that the network is under</p>
+</dd>
+<dt class="field-odd">Reutrns</dt>
+<dd class="field-odd"><p>Dictionary mapping v2/v3 to status</p>
+</dd>
+<dt class="field-even">Raises</dt>
+<dd class="field-even"><p>API error if API key is bad
+Error on str object if dashboard key isn’t initialized</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="meraki_functions.getOrgs">
+<span class="sig-prename descclassname"><span class="pre">meraki_functions.</span></span><span class="sig-name descname"><span class="pre">getOrgs</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">name</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'/all'</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#meraki_functions.getOrgs" title="Permalink to this definition">¶</a></dt>
+<dd><p>Compiles a dictionary of organization name to ID for requested organization(s)from the dashboard</p>
+<dl class="field-list simple">
+<dt class="field-odd">Usage</dt>
+<dd class="field-odd"><p>getOrgs(String of Name) -&gt; dictonary{String of Name: String of ID}</p>
+</dd>
+<dt class="field-even">Parameters</dt>
+<dd class="field-even"><p><strong>name</strong> – Optional organization name. Default is all</p>
+</dd>
+<dt class="field-odd">Returns</dt>
+<dd class="field-odd"><p>Dictionary mapping organization name to ID</p>
+</dd>
+<dt class="field-even">Raises</dt>
+<dd class="field-even"><p>API error if the organization doesn’t have requests enabled or the API key is bad
+Error on str object if dashboard key isn’t initalized through createDashboard</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="meraki_functions.getPrimaryUplink">
+<span class="sig-prename descclassname"><span class="pre">meraki_functions.</span></span><span class="sig-name descname"><span class="pre">getPrimaryUplink</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">netID</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#meraki_functions.getPrimaryUplink" title="Permalink to this definition">¶</a></dt>
+<dd><p>Obtains whether WAN1 or WAN2 is the primary uplink</p>
+<dl class="field-list simple">
+<dt class="field-odd">Usage</dt>
+<dd class="field-odd"><p>getPrimaryUplink(String of network ID) -&gt; String of WAN1, WAN2, or not configured</p>
+</dd>
+<dt class="field-even">Parameters</dt>
+<dd class="field-even"><p><strong>netID</strong> – ID of the network</p>
+</dd>
+<dt class="field-odd">Returns</dt>
+<dd class="field-odd"><p>WAN1, WAN2, or Not supported or not configured</p>
+</dd>
+<dt class="field-even">Raises</dt>
+<dd class="field-even"><p>API error if API key is bad
+Error on str object if dashboard key isn’t initialized
+400 bad request if network doesn’t have failover capable MX</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="meraki_functions.getUplinkChange">
+<span class="sig-prename descclassname"><span class="pre">meraki_functions.</span></span><span class="sig-name descname"><span class="pre">getUplinkChange</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">netID</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#meraki_functions.getUplinkChange" title="Permalink to this definition">¶</a></dt>
+<dd><p>Obtains the primary uplink status change events for a network</p>
+<dl class="field-list simple">
+<dt class="field-odd">Usage</dt>
+<dd class="field-odd"><p>getUplinkChange(String of network ID) -&gt; list[Uplink event objects]</p>
+</dd>
+<dt class="field-even">Parameters</dt>
+<dd class="field-even"><p><strong>netID</strong> – ID of the network</p>
+</dd>
+<dt class="field-odd">Returns</dt>
+<dd class="field-odd"><p>List of uplink event objects</p>
+</dd>
+<dt class="field-even">Raises</dt>
+<dd class="field-even"><p>API error if API key is bad
+Error on str object if dashboard key isn’t initialized</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="meraki_functions.getUplinkStatus">
+<span class="sig-prename descclassname"><span class="pre">meraki_functions.</span></span><span class="sig-name descname"><span class="pre">getUplinkStatus</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">orgID</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#meraki_functions.getUplinkStatus" title="Permalink to this definition">¶</a></dt>
+<dd><p>Compiles a list of device objects for a given organization with network ID, serial, model, WAN status and WAN IP attributes</p>
+<dl class="field-list simple">
+<dt class="field-odd">Usage</dt>
+<dd class="field-odd"><p>getUplinkStatus(String of organziation ID) -&gt; list[device objects]</p>
+</dd>
+<dt class="field-even">Parameters</dt>
+<dd class="field-even"><p><strong>orgID</strong> – ID of the organziation you wish to obtain devices for</p>
+</dd>
+<dt class="field-odd">Returns</dt>
+<dd class="field-odd"><p>list of device objects with serial, model, WAN status, WAN IP, and network ID attributes</p>
+</dd>
+<dt class="field-even">Raises</dt>
+<dd class="field-even"><p>API error if key is bad
+Error on str object if dashboard key isn’t initialized</p>
+</dd>
+</dl>
+</dd></dl>
+
+</section>
+
+
+          </div>
+          
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="main navigation">
+        <div class="sphinxsidebarwrapper">
+<h1 class="logo"><a href="index.html">blc_meraki</a></h1>
+
+
+
+
+
+
+
+
+<h3>Navigation</h3>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="install.html">Installation</a></li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">meraki_functions documentation:</a></li>
+<li class="toctree-l1"><a class="reference internal" href="meraki_database.html">meraki_datbase documentation:</a></li>
+</ul>
+
+<div class="relations">
+<h3>Related Topics</h3>
+<ul>
+  <li><a href="index.html">Documentation overview</a><ul>
+      <li>Previous: <a href="install.html" title="previous chapter">Installation</a></li>
+      <li>Next: <a href="meraki_database.html" title="next chapter">meraki_datbase documentation:</a></li>
+  </ul></li>
+</ul>
+</div>
+<div id="searchbox" style="display: none" role="search">
+  <h3 id="searchlabel">Quick search</h3>
+    <div class="searchformwrapper">
+    <form class="search" action="search.html" method="get">
+      <input type="text" name="q" aria-labelledby="searchlabel" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"/>
+      <input type="submit" value="Go" />
+    </form>
+    </div>
+</div>
+<script>$('#searchbox').show(0);</script>
+
+
+
+
+
+
+
+
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &copy;2022, Christopher Corby.
+      
+      |
+      Powered by <a href="http://sphinx-doc.org/">Sphinx 4.3.2</a>
+      &amp; <a href="https://github.com/bitprophet/alabaster">Alabaster 0.7.12</a>
+      
+      |
+      <a href="_sources/meraki_functions.rst.txt"
+          rel="nofollow">Page source</a>
+    </div>
+
+    
+
+    
+  </body>
+</html>

@@ -1,0 +1,5 @@
+This will be the formatting for each bash script to write
+
+#!/bin/sh                                                                                                       
+python3 /home/ccorby/meraki/project1_ccorby/meraki_lib/src/files/#filename.py# -k #api_key#
+

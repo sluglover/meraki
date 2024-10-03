@@ -1,0 +1,278 @@
+"""
+Written by Christopher Corby, 11/20/21
+
+This file creates and updates a sqlite3 database containing information for the meraki ecosystem: organizations, networks, devices, and clients
+
+History:                                                                               
+ 11/20/21 cmc Created                                                                  
+ 11/25/21 cmc Finished create method, update method in the works                       
+ 12/4/21  cmc Merged create and update method into one function                        
+ 12/5/21  cmc Finished working version                                                 
+ 12/11/21 cmc Updated paths for csv and database                                       
+ 12/18/21 cmc Added columns WAN1_Last_Active and WAN2_Last_Active in device table      
+ 12/23/21 cmc Added columns WAN1_IP and WAN2_IP in device table                        
+ 12/28/21 cmc Added column load balancing configuration in network table               
+ 12/30/21 cmc Added column primary uplink in network table                             
+ 12/31/21 cmc Added table of subnets                                                  
+ 1/3/22 cmc Added table of clients
+ 1/6/22 cmc Added column of Last_Active to device table, removed WAN1 & WAN2 Last Active
+ 1/7/22 cmc Moved primary uplink column to device table instead of network table 
+
+Requirements: 
+python 3, meraki_functions, sqlite3, sys, getopt, datetme, csv
+
+Examples:
+Running the script will create the database if not created. Otherwise, it will update all necessary fields. 
+
+./meraki_database.py -k API_KEY -o ORGANIZATION_NAME -> Creates the sqlite database meraki.db and creates a changelog under the reports directory
+"""
+
+import meraki_functions, sqlite3, sys, getopt, csv, datetime
+
+# Functions
+
+# When pulling the Last_Active and Last_Failover from the sqlite database, use strptime
+
+# If so desired, this function can be broken up into smaller pieces so that not everything is being updated at every interval.  I tried to keep it by organization, network, device, client to make it easy
+
+def createDatabase(orgName = None):
+    """
+    Creates/Updates the sqlite database. Generally not for use outside of the script as a whole.
+    
+    :usage: createDatabase(Optional: string of organization name) -> sqlite database and csv file
+    :param orgName: Optional string of organization name
+    :returns: Sqlite database and csv file
+    :raises: Error on str object if meraki_functions.createDashboard isn't initialized with the proper API key
+
+    """
+    con = sqlite3.connect('/home/ccorby/meraki/project1_ccorby/meraki_lib/src/files/meraki.db', detect_types=sqlite3.PARSE_DECLTYPES|sqlite3.PARSE_COLNAMES)
+    cur = con.cursor()
+    cur.execute('create table if not exists organizations (Name, ID, SNMP_v2_Status, SNMP_v3_Status)')
+    cur.execute('create table if not exists networks (orgID, Name, ID, Community_String, Traffic_Reporting, Collector_Port, Collector_IP, Load_Balancing)')
+    # last active columns are datetime now object
+    cur.execute('create table if not exists devices (orgID, netID, Name, Serial, Model, ddnsHostname, WAN1_IP, WAN1_Status, WAN2_IP, WAN2_Status, Last_Active, Last_Failover, Active_Uplink, Primary_Uplink)')
+    cur.execute('create table if not exists subnets (devSerial, Subnet1, Subnet2, Subnet3, Subnet4, Subnet5)')
+    cur.execute('create table if not exists clients (orgID, netID, devSerial, ID, Description, MAC, IP, VLAN, Hostname)')
+    if orgName is not None:
+        orgDict = meraki_functions.getOrgs(orgName)
+    else:
+        orgDict = meraki_functions.getOrgs()
+    with open('/home/ccorby/meraki/project1_ccorby/meraki_lib/reports/database_change_log.csv', 'a', newline='\n') as f:
+        writer = csv.writer(f, delimiter= ',')
+        for org in orgDict.keys():
+            orgID = orgDict[org]
+            # SNMP is a dictionary of the v2/v3 status
+            SNMP = meraki_functions.getOrgSNMP(orgID)
+            # this is checking if the organization already exists
+            cur.execute('select * from organizations where Name=?', (org,))
+            row = cur.fetchone()
+            if row == None:
+                # Organization hasn't been addded to the database yet
+                cur.execute('insert into organizations values (?,?,?,?)', (org, orgID, SNMP['v2'], SNMP['v3']))
+            else:
+                # checking for updates
+                if row[1] != orgID:
+                    cur.execute('update organizations set ID=? where Name=?', (orgID, org))
+                    writer.writerow(['%s Organization %s had a change in its ID from %s to %s' % (datetime.datetime.now(), org, row[1], orgID)])
+                if row[2] != SNMP['v2']:
+                    cur.execute('update organizations set SNMP_v2_Status=? where Name=?', (SNMP['v2'], org))
+                    writer.writerow(['%s Organization %s had a change in its v2 from %s to %s' % (datetime.datetime.now(), org, row[2], SNMP['v2'])])
+                if row[3] != SNMP['v3']:
+                    cur.execute('update organizations set SNMP_v3_Status=? where Name=?', (SNMP['v3'], org))
+                    writer.writerow(['%s Organization %s had a change in its v3 from %s to %s' % (datetime.datetime.now(), org, row[3], SNMP['v3'])])
+            netDict = meraki_functions.getNets(orgID)
+            for net in netDict:
+                netID = netDict[net]
+                communityString = meraki_functions.getNetCommunityString(netID)
+                # netFlowDict contains a dictionary of the traffic reporting stuff
+                netFlowDict = meraki_functions.getNetFlow(netID)
+                loadBalance = meraki_functions.getLoadBalancingStatus(netID)
+                uplinkChangeList = meraki_functions.getUplinkChange(netID)
+                primaryUplink = meraki_functions.getPrimaryUplink(netID)
+                # checking if network already exists; there should only be one for the name
+                cur.execute('select * from networks where Name=?', (net,))
+                row = cur.fetchone()
+                # Network hasn't been added to the database yet
+                if row == None:
+                    cur.execute('insert into networks values (?,?,?,?,?,?,?,?)', (orgID, net, netID, communityString, netFlowDict['trafficReporting'], netFlowDict['collectorPort'], netFlowDict['collectorIP'], loadBalance))
+                else:
+                    # checking for updates, only thing that won't ever change is row[1] or the net name
+                    if row[0] != orgID:
+                        cur.execute('update networks set orgID=? where Name=?', (orgID, net))
+                        writer.writerow(['%s Organization %s ID has been changed for network %s too. %s to %s' % (datetime.datetime.now(), org, net, row[0], orgID)])
+                    if row[2] != netID:
+                        cur.execute('update networks set ID=? where Name=?', (netID, net))
+                        writer.writerow(['%s Network %s had a change in its ID from %s to %s' % (datetime.datetime.now(), net, row[2], netID)])
+                    if row[3] != communityString:
+                        cur.execute('update networks set Community_String=? where Name=?', (communityString, net))
+                        writer.writerow(['%s Network %s had a change in its community string from %s to %s' % (datetime.datetime.now(), net, row[3], communityString)])
+                    if row[4] != netFlowDict['trafficReporting']:
+                        cur.execute('update networks set Traffic_Reporting=? where Name=?', (netFlowDict['trafficReporting'], net))
+                        writer.writerow(['%s Network %s had a change in its traffic reporting from %s to %s' % (datetime.datetime.now(), net, row[4], netFlowDict['trafficReporting'])])
+                    if row[5] != netFlowDict['collectorPort']:
+                        cur.execute('update networks set Collector_Port=? where Name=?', (netFlowDict['collectorPort'], net))
+                        writer.writerow(['%s Network %s had a change in its collector port from %s to %s' % (datetime.datetime.now(), net, row[5], netFlowDict['collectorPort'])])
+                    if row[6] != netFlowDict['collectorIP']:
+                        cur.execute('update networks set Collector_IP=? where Name=?', (netFlowDict['collectorIP'], net))                                 
+                        writer.writerow(['%s Network %s had a change in its collector IP from %s to %s' % (datetime.datetime.now(), net, row[6], netFlowDict['collectorIP'])])
+                    if row[7] != loadBalance:
+                        cur.execute('update networks set Load_Balancing=? where Name=?', (loadBalance, net))
+                        writer.writerow(['%s Network %s had a change in its Load Balancing Setting from %s to %s' % (datetime.datetime.now(), net, row[7], loadBalance)])
+                devList = meraki_functions.getNetDevs(netID)
+                if devList != None:
+                    for dev in devList:
+                        # dictionary contains ddnshostnames for general, wan1, and wan2
+                        ddnsDict = meraki_functions.getDDNSConfiguration(dev.serial)
+                        # checking if device alread exists; there should only be one for the name
+                        cur.execute('select * from devices where Serial=?', (dev.serial,))
+                        row = cur.fetchone()
+                        # Device hasn't been added to the database yet
+                        # SOME DEVICES HAVE THE SAME NAMES -> go by serial instead
+                        if row == None:
+                            cur.execute('insert into devices values (?,?,?,?,?,?,?,?,?,?,?,?,?,?)', (orgID, netID, dev.name, dev.serial, dev.model, ddnsDict['active'], 'None', 'None', 'None', 'None', datetime.datetime.now(), datetime.datetime.now(), 'None', 'None'))
+                        else:
+                            # checking for updates, only thing that shouldn't change is device name (row[2])
+                            if row[0] != orgID:
+                                cur.execute('update devices set orgID=? where Serial=?', (orgID, dev.serial))
+                                writer.writerow(['%s Organization %s ID has been changed for device %s too. %s to %s' % (datetime.datetime.now(), org, dev.name, row[0], orgID)])
+                            if row[1] != netID:
+                                cur.execute('update devices set netID=? where Serial=?', (netID, dev.serial))
+                                writer.writerow(['%s Network %s ID has been changed for device %s too. %s to %s' % (datetime.datetime.now(), net, dev.name, row[1], netID)])          
+                            if row[3] != dev.serial:
+                                cur.execute('update devices set Name=? where Serial=?', (dev.name, dev.serial))
+                                writer.writerow(['%s Device %s had a change in its name from %s to %s' % (datetime.datetime.now(), dev.serial, row[3], dev.serial)])
+                            if row[4] != dev.model:
+                                cur.execute('update devices set Model=? where Serial=?', (dev.model, dev.serial))
+                                writer.writerow(['%s Device %s had a change in its model from %s to %s' % (datetime.datetime.now(), dev.name, row[4], dev.model)])
+                            if row[5] != ddnsDict['active']: 
+                                cur.execute('update devices set ddnsHostname=? where Serial=?', (ddnsDict['active'], dev.serial))            
+                                writer.writerow(['%s Device %s had a change in its active DDNS hostname from %s to %s' % (datetime.datetime.now(), dev.name, row[5], ddnsDict['active'])])
+                        # Taking care of client table
+                        clients = meraki_functions.getDeviceClients(dev.serial)
+                        if clients != None:
+                            for client in clients:
+                                cur.execute('select * from clients where ID=?', (client.ID,))
+                                row = cur.fetchone()
+                                if row == None:
+                                    cur.execute('insert into clients values (?,?,?,?,?,?,?,?,?)', (orgID, netID, dev.serial, client.ID, client.description, client.mac, client.ip, client.vlan, client.hostname))
+                                else:
+                                    # row 3 is the client ID. remains static
+                                    if row[0] != orgID:
+                                        cur.execute('update clients set orgID=? where ID=?', (orgID, client.ID))
+                                        writer.writerow(['%s Organization %s ID has been changed for client %s too. %s to %s' % (datetime.datetime.now(), org, client.description, row[0], orgID)])
+                                    if row[1] != netID:
+                                        cur.execute('update clients set netID=? where ID=?', (netID, client.ID))
+                                        writer.writerow(['%s Network %s ID has been changed for client %s too. %s to %s' % (datetime.datetime.now(), net, client.description, row[1], netID)])
+                                    if row[2] != dev.serial:
+                                        cur.execute('update clients set devSerial=? where ID=?', (dev.serial, client.ID))
+                                        writer.writerow(['%s Client %s had a change in its device serial from %s to %s' % (datetime.datetime.now(), client.description, row[2], dev.serial)])
+                                    if row[4] != client.description:
+                                        cur.execute('update clients set Description=? where ID=?', (client.description, client.ID))          
+                                        writer.writerow(['%s Client %s had a change in its description from %s to %s' % (datetime.datetime.now(), client.ID, row[4], client.description)])
+                                    if row[5] != client.mac:
+                                        cur.execute('update clients set MAC=? where ID=?', (client.mac, client.ID))          
+                                        writer.writerow(['%s Client %s had a change in its MAC from %s to %s' % (datetime.datetime.now(), client.description, row[5], client.mac)])
+                                    if row[6] != client.ip:
+                                        cur.execute('update clients set IP=? where ID=?', (client.ip, client.ID))          
+                                        writer.writerow(['%s Client %s had a change in its IP from %s to %s' % (datetime.datetime.now(), client.description, row[6], client.ip)])
+                                    if row[7] != client.vlan:
+                                        cur.execute('update clients set VLAN=? where ID=?', (client.vlan, client.ID))          
+                                        writer.writerow(['%s Client %s had a change in its VLAN from %s to %s' % (datetime.datetime.now(), client.description, row[7], client.vlan)])
+                                    if row[8] != client.hostname:
+                                        cur.execute('update clients set Hostname=? where ID=?', (client.hostname, client.ID))          
+                                        writer.writerow(['%s Client %s had a change in its Hostname from %s to %s' % (datetime.datetime.now(), client.description, row[8], client.hostname)])
+                                        
+                            
+                        # Taking care of subnet table now
+                        if 'MX' in dev.model:
+                            subnetList = meraki_functions.getDeviceSubnets(dev.serial)
+                        else:
+                            subnetList = None
+                        # subnet list can have varying length between 0 and 5. Padding it so that each column has an element in the database. Easier to parse when taking into account updating database or be none if not a MX
+                        if subnetList != None:
+                            while len(subnetList) < 5:
+                                subnetList.append('None')
+                                cur.execute('select * from subnets where devSerial=?', (dev.serial,))
+                            row = cur.fetchone()
+                            if row == None:
+                                cur.execute('insert into subnets values (?,?,?,?,?,?)', (dev.serial, subnetList[0], subnetList[1], subnetList[2], subnetList[3], subnetList[4]))
+                            else:
+                                if row[1] != subnetList[0]:
+                                    cur.execute('update subnets set Subnet1=? where devSerial=?', (subnetList[0], dev.serial))
+                                    writer.writerow(['%s Device %s had a change in its first subnet from %s to %s' % (datetime.datetime.now(), dev.name, row[1], subnetList[0])])
+                                if row[2] != subnetList[1]:            
+                                    cur.execute('update subnets set Subnet2=? where devSerial=?', (subnetList[1], dev.serial))                                  
+                                    writer.writerow(['%s Device %s had a change in its second subnet from %s to %s' % (datetime.datetime.now(), dev.name, row[2], subnetList[1])])
+                                if row[3] != subnetList[2]:            
+                                    cur.execute('update subnets set Subnet3=? where devSerial=?', (subnetList[2], dev.serial))                                  
+                                    writer.writerow(['%s Device %s had a change in its third subnet from %s to %s' % (datetime.datetime.now(), dev.name, row[3], subnetList[2])])        
+                                if row[4] != subnetList[3]:            
+                                    cur.execute('update subnets set Subnet4=? where devSerial=?', (subnetList[3], dev.serial))                                  
+                                    writer.writerow(['%s Device %s had a change in its fourth subnet from %s to %s' % (datetime.datetime.now(), dev.name, row[4], subnetList[3])])       
+                                if row[5] != subnetList[4]:            
+                                    cur.execute('update subnets set Subnet5=? where devSerial=?', (subnetList[4], dev.serial))                                  
+                                    writer.writerow(['%s Device %s had a change in its fifth subnet from %s to %s' % (datetime.datetime.now(), dev.name, row[5], subnetList[4])])
+                # Updating the primary uplink for the network
+                cur.execute('update devices set Primary_Uplink=? where netID=?', (primaryUplink, netID))
+                if uplinkChangeList != None:
+                    for event in uplinkChangeList:
+                        # converting the time to a string for the database
+                        # possibility of microseconds, so it rounds down to seconds with timespec
+                        e = event.time.isoformat(timespec='seconds')
+                        cur.execute('update devices set Last_Failover=? where Serial=?', (e, event.devSerial))
+                        cur.execute('update devices set Active_Uplink=? where Serial=?', (event.uplinkActive, event.devSerial))
+            # last reported time, wan1, and wan2 status has to be pulled for all devices under the organization. all devices are created already at this point
+            # uplinks is list of device objects with wan1 and wan2 attributes
+            uplinks = meraki_functions.getUplinkStatus(orgID)
+            for uplink in uplinks:
+                cur.execute('select * from devices where Serial=?', (uplink.serial,))
+                row = cur.fetchone()
+                if row != None:
+                    if row[6] == 'None' and row[7] == 'None' and row[8] == 'None' and row[9] == 'None':
+                        # not logging a change because this is the first time written. see insert into devices- each is originally assigned to none
+                        cur.execute('update devices set WAN1_IP=?, WAN1_Status=?, WAN2_IP=?, WAN2_Status=? where Serial=?', (uplink.wan1_ip, uplink.wan1_stat, uplink.wan2_ip, uplink.wan2_stat, uplink.serial))
+                    else:
+                        # checking for updates for wan1 and wan2 ips
+                        if row[6] != uplink.wan1_pub_ip:
+                            cur.execute('update devices set WAN1_IP=? where Serial=?', (uplink.wan1_pub_ip, uplink.serial))
+                            writer.writerow(['%s Device %s had a change in its WAN1 IP from %s to %s' % (datetime.datetime.now(), row[2], row[6], uplink.wan1_ip)])
+                        if row[8] != uplink.wan2_pub_ip:
+                            cur.execute('update devices set WAN2_IP=? where Serial=?', (uplink.wan2_pub_ip, uplink.serial))
+                            writer.writerow(['%s Device %s had a change in its WAN2 IP from %s to %s' % (datetime.datetime.now(), row[2], row[8], uplink.wan2_ip)])
+                        # checking for updates for wan1 and wan2 status
+                        if row[7] != uplink.wan1_stat:
+                            cur.execute('update devices set WAN1_Status=? where Serial=?', (uplink.wan1_stat, uplink.serial))
+                            writer.writerow(['%s Device %s had a change in its WAN1 status from %s to %s' % (datetime.datetime.now(), row[2], row[7], uplink.wan1_stat)])
+                        if row[9] != uplink.wan2_stat:
+                            cur.execute('update devices set WAN2_Status=? where Serial=?', (uplink.wan2_stat, uplink.serial))
+                            writer.writerow(['%s Device %s had a change in its WAN2 status from %s to %s' % (datetime.datetime.now(), row[2], row[9], uplink.wan2_stat)])
+                    # converts time to a string
+                    est = uplink.lastReported.isoformat(timespec='seconds')
+                    cur.execute('update devices set Last_Active=? where Serial=?', (est, uplink.serial))
+            
+        con.commit()
+        con.close()
+
+        
+
+def main(argv):
+    try:
+        # obtaining inputs
+        opts, args = getopt.getopt(argv, 'hk:o:m:')
+    except getopt.GetoptError:
+        sys.exit(2)
+    # parsing arguments passed through
+    for opt, arg in opts:
+        if opt == '-k':
+            API_KEY = arg
+        elif opt == '-o':
+            ORG_NAME = arg
+    if API_KEY == '':
+        print("-k isn't optional")
+        sys.exit(2)
+    meraki_functions.createDashboard(API_KEY)
+    createDatabase()
+                
+
+if __name__ == '__main__':
+    main(sys.argv[1:])

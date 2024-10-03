@@ -1,0 +1,663 @@
+.\" Man page generated from reStructuredText.
+.
+.
+.nr rst2man-indent-level 0
+.
+.de1 rstReportMargin
+\\$1 \\n[an-margin]
+level \\n[rst2man-indent-level]
+level margin: \\n[rst2man-indent\\n[rst2man-indent-level]]
+-
+\\n[rst2man-indent0]
+\\n[rst2man-indent1]
+\\n[rst2man-indent2]
+..
+.de1 INDENT
+.\" .rstReportMargin pre:
+. RS \\$1
+. nr rst2man-indent\\n[rst2man-indent-level] \\n[an-margin]
+. nr rst2man-indent-level +1
+.\" .rstReportMargin post:
+..
+.de UNINDENT
+. RE
+.\" indent \\n[an-margin]
+.\" old: \\n[rst2man-indent\\n[rst2man-indent-level]]
+.nr rst2man-indent-level -1
+.\" new: \\n[rst2man-indent\\n[rst2man-indent-level]]
+.in \\n[rst2man-indent\\n[rst2man-indent-level]]u
+..
+.TH "BLC_MERAKI" "1" "Feb 04, 2022" "" "blc_meraki"
+.SH NAME
+blc_meraki \- blc_meraki 0.1
+.SH INSTALLATION
+.sp
+TODO, figure out how to install whole thing
+.SH MERAKI_FUNCTIONS DOCUMENTATION:
+.sp
+Written by Christopher Corby, 11/20/21.
+.sp
+This file is a compilation of functions that are useful in pulling data from a meraki dashboard. 
+It is NOT meant to be executed by itself, rather imported and utilized by other scripts.
+.INDENT 0.0
+.TP
+.B History:
+11/20/21 cmc Created
+11/20/21 cmc Completed working version
+11/25/21 cmc Changed error output to dictionary of null values in getOrgSNMP, getWanStatus, and getNetFlow
+11/27/21 cmc Fixed object issue (don\(aqt use hostnames v2). Added new organization\-level functions
+12/11/21 cmc Changed error output to not supported on API error (essentially when it shouldn\(aqt be called) and error on exception (generally syntax error)
+12/23/21 cmc Added IPs to device class; pulled from organization uplinks
+12/28/21 cmc Added a few test functions (network policies, network topology, network traffic apps) that write json output to a csv, updated WAN1 & WAN2 IPs to public IPs, and started monitoring network traffic
+12/29/21 cmc Added event tracking test functions and uplink status change
+12/30/21 cmc Added primary uplink selection function seperate from load balancing and updated error handling in a few functions where not every device can be pulled (API error) 
+12/31/21 cmc Added a function to obtain MX device subnets
+1/3/22 cmc Added a function and client class for obtaining clients of a device
+1/6/22 cmc Changed uplinkChange events to only return the last event for each device, added last reported attribute to uplink status pull
+1/10/22 cmc Added docstring 
+1/20/22 cmc Continued chipping away at the docstrings
+.UNINDENT
+.sp
+Requirements:
+python 3, getopt, meraki, datetime
+csv and requests for functions still in development
+.sp
+Global variables:
+DASHBOARD \-> Authentication into the dashboard using the API Key
+.sp
+Examples:
+This example obtains all the organization IDs
+.INDENT 0.0
+.INDENT 3.5
+createDashboard(API_key) \-> creates the connection to the dashboard
+getOrgs(\(aq/all\(aq) \-> returns a dictionary of all the organizations mapping to their ids
+.UNINDENT
+.UNINDENT
+.sp
+This example obtains all the devices in a list
+.INDENT 0.0
+.INDENT 3.5
+devList = []
+createDashboard(API_key) \-> creates the connection to the dashboard
+orgDict = getOrgs(\(aq/all\(aq) \-> returns a dictionary of all the organizations mapping to their ids
+for org in OrgDict.keys():
+.INDENT 0.0
+.INDENT 3.5
+orgID = orgDict[org]
+netDict = getNets(orgID) \-> returns a dictionary of all the networks in the organization mapping to their ids
+for net in netDict.keys():
+.INDENT 0.0
+.INDENT 3.5
+netID = netDict[net]
+devs = getNetDevs(netID) \-> returns a list of the devices with serial, model, and name
+devList += devs
+.UNINDENT
+.UNINDENT
+.UNINDENT
+.UNINDENT
+.UNINDENT
+.UNINDENT
+.sp
+Alternatively, one could use getOrgDevs to skip the network iteration using the orgID and obtain all devices for an organization.
+.INDENT 0.0
+.TP
+.B meraki_functions.createDashboard(key)
+Sets the dashboard request key to use in other requests.
+.INDENT 7.0
+.TP
+.B Usage
+createDashboard(String of API key)
+.TP
+.B Parameters
+\fBkey\fP \-\- This is the API key used for authentication
+.TP
+.B Returns
+Nothing. The dashboard key is stored as a global variable.
+.TP
+.B Raises
+No error if key is wrong, but all other functions will display Unauthorized: Invalid API Key
+.UNINDENT
+.UNINDENT
+.INDENT 0.0
+.TP
+.B meraki_functions.getAlertsandRecipients(netID)
+Compiles a list of alert settings for a network, with each alert having the type, if it\(aqs enabled, and the recipients
+.INDENT 7.0
+.TP
+.B Usage
+getAlertsandRecipients(String of network ID) \-> list[alert objects]
+.TP
+.B Parameters
+\fBnetID\fP \-\- ID of the network
+.TP
+.B Returns
+List of alert objects
+.TP
+.B Raises
+API error if API key is bad
+Error on str object if dashboard key isn\(aqt initialized
+.UNINDENT
+.UNINDENT
+.INDENT 0.0
+.TP
+.B meraki_functions.getDDNSConfiguration(devSerial)
+Compiles a dictonary of ddns hostnames for the device and its WANs. Incompatible with cameras
+.INDENT 7.0
+.TP
+.B Usage
+getDDNSConfiguration(String of device serial) \-> dictionary{String of active or wan: String of hostname}
+.TP
+.B Parameters
+\fBdevSerial\fP \-\- Device Serial
+.TP
+.B Returns
+Dictionary mapping active, wan1, and wan2 to their hostnames
+.TP
+.B Raises
+API error if API key is bad
+Error on str object if dashboard key isn\(aqt initialzied
+400 bad request if used on a camera
+.UNINDENT
+.UNINDENT
+.INDENT 0.0
+.TP
+.B meraki_functions.getDevLLDP(devSerial)
+Compiles LLDP and CDP information for a device in a CSV file
+.INDENT 7.0
+.TP
+.B Usage
+getDevLLDP(String of device serial) \->csv[json format of ports for the protocols]
+.TP
+.B Parameters
+\fBdevSerial\fP \-\- Seriial of the device
+.TP
+.B Returns
+CSV file in the reports directory
+.TP
+.B Raise
+API error if API key is bad
+Error on str object if dashboard key isn\(aqt initialized
+.UNINDENT
+.UNINDENT
+.INDENT 0.0
+.TP
+.B meraki_functions.getDeviceClients(devSerial)
+Compiles a list of client objects for a given device with attributes ID, description, mac, IP, vlan, and dhcp hostname (doesn\(aqt work for cameras)
+.INDENT 7.0
+.TP
+.B Usage
+getDeviceClients(String of device serial) \-> list[client objects]
+.TP
+.B Parameters
+\fBdevSerial\fP \-\- Serial of the device that you want to obtain the clients for
+.TP
+.B Returns
+List of client objects
+.TP
+.B Raises
+API error if API key is bad
+Error on str object if dashboard key isn\(aqt initialized
+400 bad request if used on a camera
+.UNINDENT
+.UNINDENT
+.INDENT 0.0
+.TP
+.B meraki_functions.getDeviceSubnets(devSerial)
+Compiles a list of subnets for a given MX device. Incompatible with other devices
+.INDENT 7.0
+.TP
+.B Usage
+getDeviceSubnets(String of device Serial) \-> list[subnets]
+.TP
+.B Parameters
+\fBdevSerial\fP \-\- Serial of the MX device
+.TP
+.B Returns
+List of subnets
+.TP
+.B Raises
+API error if API key is bad
+Error on str object if dashboard key isn\(aqt initialized
+400 bad request if not used on an MX device
+.UNINDENT
+.UNINDENT
+.INDENT 0.0
+.TP
+.B meraki_functions.getEventTypes(netID)
+Compiles a list of event types for a network
+.INDENT 7.0
+.TP
+.B Usage
+getEventTypes(String of network ID) \-> list[Event type]
+.TP
+.B Parameters
+\fBnetID\fP \-\- ID of the network
+.TP
+.B Returns
+List of event types
+.TP
+.B Raises
+API error if API key is bad
+Error on str object if dashboard key isn\(aqt initialized
+.UNINDENT
+.UNINDENT
+.INDENT 0.0
+.TP
+.B meraki_functions.getLoadBalancingStatus(netID)
+Obtains whether or not load balancing is enabled for a network
+.INDENT 7.0
+.TP
+.B Usage
+getLoadBalancingStatus(String of network ID) \-> String saying enabled or disabled
+.TP
+.B Parameters
+\fBnetID\fP \-\- ID of the network
+.TP
+.B Returns
+Enabled or disabled
+.TP
+.B Rasies
+API error if API key is bad
+Error on str object if dashboard key isn\(aqt initialized
+400 bad request if network doesn\(aqt have failover capable MX or routed mode enabled
+.UNINDENT
+.UNINDENT
+.INDENT 0.0
+.TP
+.B meraki_functions.getNetAlerts(netID)
+Not functional currently. Incompatible with current networks.
+.INDENT 7.0
+.TP
+.B Usage
+getNetAlerts(String of network ID) \-> printed json
+.TP
+.B Parameters
+\fBnetID\fP \-\- ID of the network
+.TP
+.B Returns
+json
+.TP
+.B Raises
+Error on any given network ID
+.UNINDENT
+.UNINDENT
+.INDENT 0.0
+.TP
+.B meraki_functions.getNetCommunityString(netID)
+Obtains the community string for a network
+.INDENT 7.0
+.TP
+.B Usage
+getNetCommunityString(String of netID) \-> String of community string
+.TP
+.B Parameters
+\fBnetID\fP \-\- ID of the network
+.TP
+.B Returns
+Community string or none if error/nonexistent
+.TP
+.B Raises
+API error if API key is bad
+Error ons tr object if dashboard key isn\(aqt iniitalized
+.UNINDENT
+.UNINDENT
+.INDENT 0.0
+.TP
+.B meraki_functions.getNetDevs(netID)
+Compiles a list of device objects for a given network with name, serial, and model attributes
+.INDENT 7.0
+.TP
+.B Usage
+getNetDevs(String of network ID) \-> list[device objects]
+.TP
+.B Parameters
+\fBnetID\fP \-\- ID of the network you wish to obtain the devices for
+.TP
+.B Returns
+List of device objects with name, serial, and model for each
+.TP
+.B Raises
+API error if API key is bad
+Error on str object if dashboard key isn\(aqt initialized
+.UNINDENT
+.UNINDENT
+.INDENT 0.0
+.TP
+.B meraki_functions.getNetEvents(netID)
+Prints all the events for a given network
+.INDENT 7.0
+.TP
+.B Usage
+getNetEvents(String of network ID) \-> printed events for the network
+.TP
+.B Parameters
+\fBnetID\fP \-\- ID of the network
+.TP
+.B Returns
+Printed events in json format
+.TP
+.B Raises
+API error if API key is bad
+Error on str object if dashboard key isn\(aqt initialized
+.UNINDENT
+.UNINDENT
+.INDENT 0.0
+.TP
+.B meraki_functions.getNetFlow(netID)
+Compiles a dictonary of the status of traffic reporting and the collector port/IP for a network
+.INDENT 7.0
+.TP
+.B Usage
+getNetFlow(String of netID) \-> dictionary{traffic reporting, collectorIP, collectorPort}
+.TP
+.B Parameters
+\fBnetID\fP \-\- ID of the network
+.TP
+.B Returns
+Dictionary of traffic reporting and collector port/IP
+.TP
+.B Raises
+API error if API key is bad
+Error on str object if dashboard key isn\(aqt initialized
+.UNINDENT
+.UNINDENT
+.INDENT 0.0
+.TP
+.B meraki_functions.getNetPolicies(netID)
+Compiles the policies of the network such as scheduling, bandwidth settings, firewall, and traffic shaping settings into a csv for testing.
+.INDENT 7.0
+.TP
+.B Usage
+getNetPolicies(String of network ID) \-> csv[json format of policies]
+.TP
+.B Parameters
+\fBnetID\fP \-\- ID of the network
+.TP
+.B Returns
+CSV file in the reports directory
+.TP
+.B Raises
+API error if API key is bad
+Error on str object if dashboard key isn\(aqt initialized
+.UNINDENT
+.UNINDENT
+.INDENT 0.0
+.TP
+.B meraki_functions.getNetTopology(key, netID)
+Still in development due to the pull from meraki being unavailable through their API currently; it needs to be done through get requests
+Obtains a json of the network topology for a given network in the form of graph nodes.
+:usage: getNetTopology(String of API key, String of network ID) \-> printed json of nodes
+:param key: API key
+:param netID: ID of the network
+:returns: Printed json of the network topology nodes
+:raises: API error if API key is bad
+.UNINDENT
+.INDENT 0.0
+.TP
+.B meraki_functions.getNetTraffic(netID)
+Obtains all the network traffic for the day from the dashboard and compiles them into net_packet classes
+.INDENT 7.0
+.TP
+.B Usage
+getNetTraffic(String of network ID) \-> list[packet objects]
+.TP
+.B Parameters
+\fBnetID\fP \-\- ID of the network that you wish to get the traffic of
+.TP
+.B Returns
+List of net packet objects for the past day that contain destination, protocol, number sent/received, and other data
+.TP
+.B Raises
+API error if API key is bad
+Error on str object if dashboard key isn\(aqt initialized at all
+.UNINDENT
+.UNINDENT
+.INDENT 0.0
+.TP
+.B meraki_functions.getNetTrafficAnalysis(netID)
+Obtains a json of the traffic settings for the network. Still in development because there is no current use for it.
+.INDENT 7.0
+.TP
+.B Usage
+getNetTrafficAnalysis(String of network ID) \-> printed json of traffic settings
+.TP
+.B Parameters
+\fBnetID\fP \-\- ID of the network that you wish to get the settings for
+.TP
+.B Returns
+Printed json of the traffic settings
+.TP
+.B Raises
+API error if API key is bad
+Error on str object if dashboard key isn\(aqt initialized
+.UNINDENT
+.UNINDENT
+.INDENT 0.0
+.TP
+.B meraki_functions.getNetTrafficApps(netID)
+Compiles all apps downloaded through meraki/ on meraki into a csv.
+.INDENT 7.0
+.TP
+.B Usage
+getNetTrafficApps(String of network ID) \-> csv[json format of apps]
+.TP
+.B Parameters
+\fBnetID\fP \-\- ID of the network
+.TP
+.B Returns
+CSV file in reports directory
+.TP
+.B Raises
+API error if API key is bad
+Error on str object if dashboard key isn\(aqt initialized
+.UNINDENT
+.UNINDENT
+.INDENT 0.0
+.TP
+.B meraki_functions.getNets(orgID, netName=None)
+Compiles a dictionary of network name to ID for requested organization and network(s) from the dashboard
+.INDENT 7.0
+.TP
+.B Usage
+getNets(String of organization ID, String of network Name) \-> dictionary{String of Name: String of ID}
+.TP
+.B Parameters
+.INDENT 7.0
+.IP \(bu 2
+\fBorgID\fP \-\- ID of the organization that the network is under
+.IP \(bu 2
+\fBnetName\fP \-\- Optional name of network. Default is none, which pulls all networks
+.UNINDENT
+.TP
+.B Returns
+Dictionary mapping network name to ID
+.TP
+.B Raises
+API error if API key is bad
+Error on str object if dashboard key isn\(aqt initalized through createDashboard
+.UNINDENT
+.UNINDENT
+.INDENT 0.0
+.TP
+.B meraki_functions.getOrgDevs(orgID)
+Compiles a list of device objects for a given organization with name, serial, model, and network ID attributes
+.INDENT 7.0
+.TP
+.B Usage
+getOrgDevs(String of organziation ID) \-> list[device objects]
+.TP
+.B Parameters
+\fBorgID\fP \-\- ID of the organziation you wish to obtain devices for
+.TP
+.B Returns
+list of device objects with name, serial, model, and network ID
+.TP
+.B Raises
+API error if API key is bad
+Error on str object if dashboard key isn\(aqt initialized
+.UNINDENT
+.UNINDENT
+.INDENT 0.0
+.TP
+.B meraki_functions.getOrgSNMP(orgID)
+Compiles a dictonary of the status of what SNMP version is active for the organization
+.INDENT 7.0
+.TP
+.B Usage
+getOrgSNMP(String of organization ID) \-> dictionary{String of v2/v3: Enabled/Disabled}
+.TP
+.B Parameters
+\fBorgID\fP \-\- ID of the organization that the network is under
+.TP
+.B Reutrns
+Dictionary mapping v2/v3 to status
+.TP
+.B Raises
+API error if API key is bad
+Error on str object if dashboard key isn\(aqt initialized
+.UNINDENT
+.UNINDENT
+.INDENT 0.0
+.TP
+.B meraki_functions.getOrgs(name=\(aq/all\(aq)
+Compiles a dictionary of organization name to ID for requested organization(s)from the dashboard
+.INDENT 7.0
+.TP
+.B Usage
+getOrgs(String of Name) \-> dictonary{String of Name: String of ID}
+.TP
+.B Parameters
+\fBname\fP \-\- Optional organization name. Default is all
+.TP
+.B Returns
+Dictionary mapping organization name to ID
+.TP
+.B Raises
+API error if the organization doesn\(aqt have requests enabled or the API key is bad
+Error on str object if dashboard key isn\(aqt initalized through createDashboard
+.UNINDENT
+.UNINDENT
+.INDENT 0.0
+.TP
+.B meraki_functions.getPrimaryUplink(netID)
+Obtains whether WAN1 or WAN2 is the primary uplink
+.INDENT 7.0
+.TP
+.B Usage
+getPrimaryUplink(String of network ID) \-> String of WAN1, WAN2, or not configured
+.TP
+.B Parameters
+\fBnetID\fP \-\- ID of the network
+.TP
+.B Returns
+WAN1, WAN2, or Not supported or not configured
+.TP
+.B Raises
+API error if API key is bad
+Error on str object if dashboard key isn\(aqt initialized
+400 bad request if network doesn\(aqt have failover capable MX
+.UNINDENT
+.UNINDENT
+.INDENT 0.0
+.TP
+.B meraki_functions.getUplinkChange(netID)
+Obtains the primary uplink status change events for a network
+.INDENT 7.0
+.TP
+.B Usage
+getUplinkChange(String of network ID) \-> list[Uplink event objects]
+.TP
+.B Parameters
+\fBnetID\fP \-\- ID of the network
+.TP
+.B Returns
+List of uplink event objects
+.TP
+.B Raises
+API error if API key is bad
+Error on str object if dashboard key isn\(aqt initialized
+.UNINDENT
+.UNINDENT
+.INDENT 0.0
+.TP
+.B meraki_functions.getUplinkStatus(orgID)
+Compiles a list of device objects for a given organization with network ID, serial, model, WAN status and WAN IP attributes
+.INDENT 7.0
+.TP
+.B Usage
+getUplinkStatus(String of organziation ID) \-> list[device objects]
+.TP
+.B Parameters
+\fBorgID\fP \-\- ID of the organziation you wish to obtain devices for
+.TP
+.B Returns
+list of device objects with serial, model, WAN status, WAN IP, and network ID attributes
+.TP
+.B Raises
+API error if key is bad
+Error on str object if dashboard key isn\(aqt initialized
+.UNINDENT
+.UNINDENT
+.SH MERAKI_DATBASE DOCUMENTATION:
+.sp
+Written by Christopher Corby, 11/20/21
+.sp
+This file creates and updates a sqlite3 database containing information for the meraki ecosystem: organizations, networks, devices, and clients
+.INDENT 0.0
+.TP
+.B History:                                                                               
+11/20/21 cmc Created                                                                  
+11/25/21 cmc Finished create method, update method in the works                       
+12/4/21  cmc Merged create and update method into one function                        
+12/5/21  cmc Finished working version                                                 
+12/11/21 cmc Updated paths for csv and database                                       
+12/18/21 cmc Added columns WAN1_Last_Active and WAN2_Last_Active in device table      
+12/23/21 cmc Added columns WAN1_IP and WAN2_IP in device table                        
+12/28/21 cmc Added column load balancing configuration in network table               
+12/30/21 cmc Added column primary uplink in network table                             
+12/31/21 cmc Added table of subnets                                                  
+1/3/22 cmc Added table of clients
+1/6/22 cmc Added column of Last_Active to device table, removed WAN1 & WAN2 Last Active
+1/7/22 cmc Moved primary uplink column to device table instead of network table
+.UNINDENT
+.sp
+Requirements: 
+python 3, meraki_functions, sqlite3, sys, getopt, datetme, csv
+.sp
+Examples:
+Running the script will create the database if not created. Otherwise, it will update all necessary fields.
+.sp
+\&./meraki_database.py \-k API_KEY \-o ORGANIZATION_NAME \-> Creates the sqlite database meraki.db and creates a changelog under the reports directory
+.INDENT 0.0
+.TP
+.B meraki_database.createDatabase(orgName=None)
+Creates/Updates the sqlite database. Generally not for use outside of the script as a whole.
+.INDENT 7.0
+.TP
+.B Usage
+createDatabase(Optional: string of organization name) \-> sqlite database and csv file
+.TP
+.B Parameters
+\fBorgName\fP \-\- Optional string of organization name
+.TP
+.B Returns
+Sqlite database and csv file
+.TP
+.B Raises
+Error on str object if meraki_functions.createDashboard isn\(aqt initialized with the proper API key
+.UNINDENT
+.UNINDENT
+.INDENT 0.0
+.IP \(bu 2
+genindex
+.IP \(bu 2
+modindex
+.IP \(bu 2
+search
+.UNINDENT
+.SH AUTHOR
+Christopher Corby
+.SH COPYRIGHT
+2022, Christopher Corby
+.\" Generated by docutils manpage writer.
+.

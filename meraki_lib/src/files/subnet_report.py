@@ -1,0 +1,93 @@
+"""
+Written by Christopher Corby, 12/31/21
+
+This file creates a CSV of all subnets used by MX devices for an organziation or network
+
+History:
+ 12/31/21 cmc Created and finished working version
+ 4/15/22 cmc Fixed syntax errors/ finished working version
+ 4/23/22 cmc Parsed the correct subnets this time. NOT DHCP!
+ 5/1/22 cmc Tried to resolve error in repeats, but couldn't find such
+
+Requirements:
+python 3, sys, getopt, sqlite3, csv, meraki_functions
+
+Examples:
+"""
+# Imports
+
+import meraki_functions, csv, sys, getopt, sqlite3
+
+# Functions
+
+def pullRoute(ORG_NAME):
+    """
+    Pulls everything strictly from the dashboard
+    """
+    with open('/home/ccorby/meraki/project1_ccorby/meraki_lib/reports/MX_Subnets.csv', 'w', newline='\n') as f:
+        writer = csv.writer(f, delimiter = ',')
+        writer.writerow(['Network', 'Subnets'])
+        orgDict = meraki_functions.getOrgs(ORG_NAME)
+        for org in orgDict.keys():
+            totalVlans = []
+            orgID = orgDict[org]
+            netDict = meraki_functions.getNets(orgID)
+            for net in netDict.keys():
+                netID = netDict[net]
+                vlans = meraki_functions.getNetVlans(netID)
+                if vlans != None:
+                    vlanList = []
+                    for vlan in vlans:
+                        if vlan.ID not in totalVlans:
+                            totalVlans.append(vlan.subnet)
+                            vlanList.append(vlan.subnet + ":" + str(vlan.ID))
+                        else:
+                            print(net)
+                            print(f'{net},{vlan.subnet} is already in the list')
+                    if vlanList != []:
+                        writer.writerow([net] + vlanList)
+
+def pullRoute2(ORG_NAME):
+    """ 
+    Pulls everything strictly from the dashboard
+    """
+    with open('/home/ccorby/meraki/project1_ccorby/meraki_lib/reports/MX_Subnets2.csv', 'w', newline='\n') as f: 
+        writer = csv.writer(f, delimiter = ',')
+        writer.writerow(['Network', 'Subnets'])
+        orgDict = meraki_functions.getOrgs(ORG_NAME)
+        for org in orgDict.keys():
+            orgID = orgDict[org]
+            netDict = meraki_functions.getNets(orgID)
+            for net in netDict.keys():
+                netID = netDict[net]
+                vlans = meraki_functions.getNetVlans(netID)
+                if vlans != None:
+                    vlanList = []
+                    for vlan in vlans:
+                        vlanList.append(vlan.subnet + ":" + str(vlan.ID))
+                    writer.writerow([net] + vlanList)
+            
+def main(argv):
+    try:
+        # obtaining inputs                                                               
+        opts, args = getopt.getopt(argv, 'k:o:')
+    except getopt.GetoptError:
+        sys.exit(2)
+    # parsing arguments passed through                                                   
+    for opt, arg in opts:
+        if opt == '-k':
+            API_KEY = arg
+        elif opt == '-o':
+            ORG_NAME = arg
+    if API_KEY == '':
+        print("-k isn't optional")
+        sys.exit(2)
+    # default is all organizations                                                       
+    if ORG_NAME == '':
+        ORG_NAME = '/all'
+    meraki_functions.createDashboard(API_KEY)
+    pullRoute2(ORG_NAME)
+
+if __name__ == '__main__':
+    main(sys.argv[1:])
+            
